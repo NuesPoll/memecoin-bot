@@ -5,6 +5,7 @@ import { WALLET_COUNT, WalletResult, batchBudget, formatUnits, validateLaunch } 
 import { EncryptedVault, decryptVault, encryptVault } from '@/lib/solana/vault';
 import PracticeSimulation from './PracticeSimulation';
 import WalletTrading from './WalletTrading';
+import { ActivityExplorer, CopyAddress, LaunchChecklist } from './WorkspaceTools';
 import StudioChrome, { StudioOverview, StudioIcon, studioViews, StudioView } from './StudioChrome';
 
 const STORAGE = 'novapulse.devnet.encrypted-vault.v1';
@@ -155,7 +156,7 @@ export default function SolanaStudio() {
   try { totalSpend = (Number(batchBudget(buyAmount, WALLET_COUNT, Math.round(Number(slippage) * 100)).total) / 1e9).toString(); } catch { /* Validation appears when the user prepares a batch. */ }
 
   const recordedTrades = confirmed + (progress.sales || []).filter(sale => sale.status === 'confirmed').length;
-  return <StudioChrome view={view} navigate={navigate} unlocked={!!project} network={network}>
+  return <StudioChrome view={view} navigate={navigate} unlocked={!!project} network={network} busy={!!busy} refresh={() => run('Refreshing wallet balances', refresh)} lock={lock}>
     <div className="np-global-notices">
     {error && <Alert status="error"><AlertIcon /><Text overflowWrap="anywhere">{error}</Text></Alert>}
     {notice && <Alert status="success"><AlertIcon /><Text>{notice}</Text></Alert>}
@@ -163,6 +164,7 @@ export default function SolanaStudio() {
     {progress.pending && <Box borderWidth="1px" rounded="lg" p={5}><Text>One {progress.pending.action} transaction needs a status check. New submissions are paused to avoid repeating it.</Text><Link href={explorer(progress.pending.signature, 'tx')} isExternal overflowWrap="anywhere">View devnet transaction</Link><Button ml={3} isDisabled={!!busy || !project} onClick={() => run('Checking transaction', checkPending)}>Check transaction status</Button></Box>}
 
     </div>
+    {view !== 'overview' && view !== 'practice' && <LaunchChecklist unlocked={!!project} backedUp={backupSaved} tokenCreated={!!progress.tokenCreated} poolCreated={!!progress.poolCreated} navigate={navigate} />}
     <section className="np-view" hidden={view !== 'overview'} aria-label="Overview workspace">
       <StudioOverview navigate={navigate} unlocked={!!project} backedUp={backupSaved} tokenCreated={!!progress.tokenCreated} poolCreated={!!progress.poolCreated} balance={solBalances.length ? solBalances[0] : undefined} confirmed={recordedTrades} />
     </section>
@@ -179,7 +181,7 @@ export default function SolanaStudio() {
         <Text>Launch wallet balance: {solBalances.length ? `${(solBalances[0] / 1e9).toFixed(6)} test SOL` : 'Not checked yet'}</Text>
         <Text>Launch wallet project tokens: {holdings.length ? formatUnits(holdings[0].rawAmount, 6) : 'Not checked yet'}</Text>
         {balancesAt && <Text fontSize="sm">Balances last checked at {balancesAt}. Refresh before making a new decision.</Text>}
-        <Text fontSize="sm" overflowWrap="anywhere">Launch wallet address for the faucet: {project.treasury.publicKey.toBase58()}</Text>
+        <Text fontSize="sm">Launch wallet address for the faucet:</Text><CopyAddress value={project.treasury.publicKey.toBase58()} />
         <HStack flexWrap="wrap"><Button onClick={downloadBackup} isDisabled={!!busy}>Download encrypted backup</Button><Button variant="outline" onClick={() => run('Checking balances', refresh)} isDisabled={!!busy}>Refresh balances</Button><Button variant="ghost" onClick={lock} isDisabled={!!busy}>Lock vault</Button></HStack>
         {!backupSaved && <Alert status="warning"><AlertIcon /><VStack align="stretch"><Text>Save your encrypted backup to enable Create token. This protects access to your wallets; it is separate from your test SOL balance.</Text><Checkbox onChange={event => { setBackupSaved(event.target.checked); remember({ ...progressRef.current, backupAcknowledged: event.target.checked }); }}>I already saved this vault&apos;s encrypted backup and know its password.</Checkbox></VStack></Alert>}
         <Field label="Pool address for recovery (optional)" value={recoveryPool} disabled={!!busy} onChange={setRecoveryPool} />
@@ -235,9 +237,7 @@ export default function SolanaStudio() {
     {!project && <div className="np-panel np-empty"><StudioIcon name="wallets"/><h3>Your wallet group will appear here</h3><p>Create or restore your vault above to view your 40 buying wallets and balances.</p></div>}
     </section>
     <section className="np-view" hidden={view !== 'activity'} aria-label="Transaction activity">
-      <Box className="np-panel"><Heading size="md" mb={3}>Recorded buys and sales</Heading><Text fontSize="sm" color="gray.400" mb={5}>Your saved project signatures. Only confirmed results mean a completed trade.</Text>
-      {!(batchRows?.length || progress.sales?.length) ? <div className="np-empty"><StudioIcon name="activity"/><h3>No transactions recorded yet</h3><p>Once you submit a devnet trade, its signature and status will appear here.</p><button className="np-action" onClick={() => navigate('trading')}>Open trading <StudioIcon name="arrow"/></button></div> : <Box overflowX="auto"><Table><Thead><Tr><Th>Action</Th><Th>Wallet</Th><Th>Signature</Th><Th>Status</Th></Tr></Thead><Tbody>{[...(batchRows || []).map(row => ({ ...row, kind: 'Buy' })), ...(progress.sales || []).map(sale => ({ address: sale.sale?.walletAddress || '', signature: sale.signature, status: sale.status, kind: 'Sell' }))].map((row, i) => <Tr key={row.signature || i}><Td>{row.kind}</Td><Td>{short(row.address)}</Td><Td>{row.signature ? <Link href={explorer(row.signature, 'tx')} isExternal>{short(row.signature)}</Link> : 'Not submitted'}</Td><Td><span className="np-status-badge" data-status={row.status}>{row.status}</span></Td></Tr>)}</Tbody></Table></Box>}
-      </Box>
+      <ActivityExplorer rows={[...(batchRows || []).map(row => ({ ...row, kind: 'Buy' as const })), ...(progress.sales || []).map(sale => ({ address: sale.sale?.walletAddress || '', signature: sale.signature, status: sale.status, kind: 'Sell' as const }))]} navigate={navigate} />
     </section>
     <section className="np-view" hidden={view !== 'practice'} aria-label="Practice workspace"><PracticeSimulation active={view === 'practice'} /></section>
     <p className="np-network-note" role="status"><StudioIcon name="shield"/>{network}</p>
