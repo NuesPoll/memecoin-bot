@@ -3,9 +3,10 @@ import { Alert, AlertIcon, Badge, Box, Button, Checkbox, FormControl, FormLabel,
 import type { BatchRecord, LaunchInput, PreparedBatch, TestProject, TransactionAttempt } from '@/lib/solana/chain';
 import { WALLET_COUNT, WalletResult, batchBudget, validateLaunch } from '@/lib/solana/plan';
 import { EncryptedVault, decryptVault, encryptVault } from '@/lib/solana/vault';
+import PracticeSimulation from './PracticeSimulation';
 
 const STORAGE = 'novapulse.devnet.encrypted-vault.v1';
-type Progress = { input: LaunchInput; tokenCreated?: boolean; pool?: string; poolCreated?: boolean; batch?: BatchRecord; pending?: TransactionAttempt };
+type Progress = { input: LaunchInput; tokenCreated?: boolean; pool?: string; poolCreated?: boolean; batch?: BatchRecord; pending?: TransactionAttempt; backupAcknowledged?: boolean };
 const initialInput: LaunchInput = { name: 'NovaPulse Test', symbol: 'NOVA', supply: '1000000', poolTokens: '100000', poolSol: '0.1' };
 const chain = () => import('@/lib/solana/chain');
 const short = (value: string) => `${value.slice(0, 6)}...${value.slice(-6)}`;
@@ -59,7 +60,7 @@ export default function SolanaStudio() {
     const saved = localStorage.getItem(`${STORAGE}.public.${next.mint.publicKey.toBase58()}`);
     const nextProgress = saved ? JSON.parse(saved) as Progress : { input: initialInput };
     progressRef.current = nextProgress;
-    setProgress(nextProgress); setInput(nextProgress.input); setPrepared(null); setReviewed(false);
+    setProgress(nextProgress); setInput(nextProgress.input); setPrepared(null); setReviewed(false); setBackupSaved(nextProgress.backupAcknowledged === true);
   }
   async function run(label: string, task: () => Promise<void>) {
     if (running.current) return;
@@ -88,7 +89,8 @@ export default function SolanaStudio() {
     if (!encrypted) throw new Error('Select an encrypted backup first.');
     const api = await chain();
     const next = api.restoreProject(await decryptVault(encrypted, password));
-    install(next); setPassword(''); setBackupSaved(false);
+    localStorage.setItem(STORAGE, JSON.stringify(encrypted));
+    install(next); setPassword('');
   }
   function downloadBackup() {
     if (!encrypted) return;
@@ -96,6 +98,7 @@ export default function SolanaStudio() {
     const link = document.createElement('a'); link.href = url; link.download = 'NovaPulse-devnet-encrypted-vault.json'; link.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     setBackupSaved(true);
+    remember({ ...progressRef.current, backupAcknowledged: true });
   }
   function lock() {
     projectRef.current = null; setProject(null); setPrepared(null); setSolBalances([]); setBackupSaved(false); setPassword('');
@@ -122,6 +125,7 @@ export default function SolanaStudio() {
   const batchRows = progress.batch?.rows;
   const settingsLocked = !!progress.tokenCreated || !!progress.poolCreated || !!progress.batch || !!progress.pending;
   const confirmed = batchRows?.filter(row => row.status === 'confirmed').length || 0;
+  const tokenGate = !project ? 'Unlock or create your wallets first.' : !backupSaved ? 'Create token is paused until you save your encrypted backup. Use Download encrypted backup above, or confirm that you already saved it.' : progress.pending ? 'Check the pending transaction status before creating another transaction.' : busy ? 'Wait for the current step to finish.' : '';
   let totalSpend = '-';
   try { totalSpend = (Number(batchBudget(buyAmount, WALLET_COUNT, Math.round(Number(slippage) * 100)).total) / 1e9).toString(); } catch { /* Validation appears when the user prepares a batch. */ }
 
@@ -147,7 +151,7 @@ export default function SolanaStudio() {
         <Text>Launch wallet balance: {solBalances.length ? `${(solBalances[0] / 1e9).toFixed(6)} test SOL` : 'Not checked yet'}</Text>
         <Text fontSize="sm" overflowWrap="anywhere">Launch wallet address for the faucet: {project.treasury.publicKey.toBase58()}</Text>
         <HStack flexWrap="wrap"><Button onClick={downloadBackup} isDisabled={!!busy}>Download encrypted backup</Button><Button variant="outline" onClick={() => run('Checking balances', refresh)} isDisabled={!!busy}>Refresh balances</Button><Button variant="ghost" onClick={lock} isDisabled={!!busy}>Lock vault</Button></HStack>
-        {!backupSaved && <Text>Download the encrypted backup to unlock the next steps.</Text>}
+        {!backupSaved && <Alert status="warning"><AlertIcon /><VStack align="stretch"><Text>Save your encrypted backup to enable Create token. This protects access to your wallets; it is separate from your test SOL balance.</Text><Checkbox onChange={event => { setBackupSaved(event.target.checked); remember({ ...progressRef.current, backupAcknowledged: event.target.checked }); }}>I already saved this vault&apos;s encrypted backup and know its password.</Checkbox></VStack></Alert>}
         <Field label="Pool address for recovery (optional)" value={recoveryPool} disabled={!!busy} onChange={setRecoveryPool} />
         <Button variant="outline" isDisabled={!!busy} onClick={() => run('Checking existing token and pool', async () => { const api = await chain(); const pool = recoveryPool.trim() || progressRef.current.pool; const found = await api.inspectProject(api.connection(), project, pool); const recoveredInput = { ...progressRef.current.input, name: found.name || progressRef.current.input.name, symbol: found.symbol || progressRef.current.input.symbol }; setInput(recoveredInput); remember({ ...progressRef.current, ...found, input: recoveredInput, pool }); await refresh(); setNotice(found.tokenCreated ? 'The existing token and pool progress were checked against devnet.' : 'No token exists for this project yet.'); })}>Check on-chain progress</Button>
         <Text>Get free test SOL from Solana&apos;s web faucet using the launch wallet address above, then refresh balances here. Its RPC faucet is closed; the web faucet may require sign-in or a challenge.</Text>
@@ -164,6 +168,7 @@ export default function SolanaStudio() {
         <Field label="Test SOL for initial liquidity" value={input.poolSol} disabled={settingsLocked || !!busy} onChange={poolSol => setInput({ ...input, poolSol })} />
       </SimpleGrid>
       <Text mt={3}>The token uses Solana Token-2022 with 6 decimals, a fixed supply, and no freeze authority. Creating the Raydium devnet pool also uses test SOL for rent and its pool-creation fee.</Text>
+      {tokenGate && <Alert mt={3} status="warning"><AlertIcon /><Text>{tokenGate}</Text></Alert>}
       <HStack mt={4} flexWrap="wrap">
         <Button isDisabled={disabled || !!progress.tokenCreated} onClick={() => run('Creating token', async () => { if (!project) return; validateLaunch(input.name, input.symbol, input.supply, input.poolTokens, input.poolSol); remember({ ...progressRef.current, input }); const api = await chain(); await refresh(); const signature = await api.createToken(api.connection(), project, input, trackTransaction); remember({ ...progressRef.current, tokenCreated: true }); await refresh(); setNotice(`Token confirmed on devnet. Transaction: ${signature}`); })}>{progress.tokenCreated ? 'Token created' : 'Create token'}</Button>
         <Button isDisabled={disabled || !progress.tokenCreated || !!progress.poolCreated} onClick={() => run('Creating trading pool', async () => { if (!project) return; const api = await chain(); const result = await api.createPool(api.connection(), project, progressRef.current.input, pool => remember({ ...progressRef.current, pool }), trackTransaction); remember({ ...progressRef.current, pool: result.pool, poolCreated: true }); await refresh(); setNotice('The devnet trading pool is confirmed.'); })}>{progress.poolCreated ? 'Pool created' : 'Create trading pool'}</Button>
@@ -186,6 +191,7 @@ export default function SolanaStudio() {
       {progress.batch && <VStack align="stretch" mt={4} spacing={3}><Text>{confirmed} of 40 purchases confirmed. Each row is checked against the blockchain; submission is not a confirmation.</Text><Button variant="outline" isDisabled={!!busy} onClick={() => run('Checking batch results', async () => { const api = await chain(); const record = progressRef.current.batch!; remember({ ...progressRef.current, batch: { ...record, rows: await api.checkBatch(api.connection(), record) } }); await refresh(); })}>Refresh transaction status</Button><Text fontSize="sm">This test project submits one buying batch. It never automatically creates replacement purchases after an uncertain or failed result.</Text></VStack>}
     </Box>
 
+    <PracticeSimulation />
     {project && <Box overflowX="auto"><Heading size="md" mb={3}>Buying wallets</Heading><Table size="sm"><Thead><Tr><Th>Wallet</Th><Th>Address</Th><Th>Test SOL</Th><Th>Purchase status</Th></Tr></Thead><Tbody>{project.wallets.map((wallet, i) => { const address = wallet.publicKey.toBase58(); const row = batchRows?.find(item => item.address === address); return <Tr key={address}><Td>{i + 1}</Td><Td><Link href={explorer(address)} isExternal>{short(address)}</Link></Td><Td>{solBalances.length ? (solBalances[i + 1] / 1e9).toFixed(6) : 'Not checked'}</Td><Td>{row?.signature ? <Link href={explorer(row.signature, 'tx')} isExternal>{row.status}</Link> : row?.status || 'Not submitted'}{row?.message && <Text fontSize="sm" mt={1}>{row.message}</Text>}</Td></Tr>; })}</Tbody></Table></Box>}
     <Text fontSize="sm">Public launch progress and transaction signatures are saved in this browser. The encrypted backup restores keys; keep the public mint and pool addresses too when moving to another device. This version is for devnet testing and has no mainnet switch.</Text>
   </VStack>;

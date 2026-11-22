@@ -34,6 +34,14 @@ Primary implementation references:
 
 ## Token-creation error recovery
 
+Create token remains disabled until the vault is unlocked, its encrypted backup is saved or explicitly acknowledged as already saved, and any pending transaction is checked. Saving/acknowledging the backup is remembered for that project on that browser. The reason is displayed beside the token controls. Restoring and successfully decrypting a backup also saves its ciphertext for later unlocks; no plaintext keys are stored.
+
+## Shuffled practice simulation
+
+The separate Shuffled buy/sell practice panel is entirely synthetic. It uses 40 virtual wallets, three simulated buys and two simulated sells each, for 200 actions (60% buys). Each virtual sell uses 25% of current virtual holdings and is eligible only after a buy. Delays default to 2-5 seconds and can be set to whole seconds between 2 and 30. Preview creates a finite schedule, playback applies one event per delay, and pause/resume/reset affect only that in-memory simulation. Timers are cleared when paused or unmounted; background browser throttling can lengthen delays. The schedule is not saved across page reloads. This module imports no wallet/signing/network code, never accesses the vault and never submits transactions. Virtual tokens do not represent prices, proceeds or expected execution. It is not a real buy/sell cycle bot.
+
+## Hosted addresses and recovery
+
 The public devnet website is https://novapulse-nine.vercel.app. Old preview deployment addresses are immutable and may still contain earlier errors. Browser vault storage belongs to each address separately: download the encrypted backup on the original address and restore that same backup on the updated address. Do not create a replacement vault to recover an existing project.
 
 Before mint creation the app reads the actual account-rent costs, network fee and launch-wallet balance. An unfunded wallet is stopped before broadcast with the required test SOL amount and a faucet instruction. RPC preflight errors receive fixed explanations rather than provider URLs or raw logs. A signed attempt is saved before broadcast; interrupted results pause new transactions and expose a status check. Failed/expired results do not trigger automatic replacement transactions. The public read-only /api/solana/transaction?signature= endpoint verifies devnet before looking up a public signature. An absent signature alone is not proof of failed submission.

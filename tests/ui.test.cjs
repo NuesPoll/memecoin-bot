@@ -51,4 +51,31 @@ test('Solana studio displays the forty-wallet flow and safe initial action gates
  const html = render(Component);
  assert.match(html, /Solana Launch Studio/); assert.match(html, /Create 40 wallets/);
  assert.match(html, /DEVNET/); assert.match(html, /Create trading pool/); assert.match(html, /Prepare batch for review/);
+ assert.match(html, /Unlock or create your wallets first/);
+ assert.match(html, /SIMULATION - NO TRANSACTIONS/);
+});
+
+test('buy and sell practice clearly distinguishes synthetic events from submitted transactions', () => {
+ const Component=load('src/components/PracticeSimulation.tsx').default;
+ const html=render(Component);
+ assert.match(html,/synthetic practice run/);assert.match(html,/never submits trades/);
+ assert.match(html,/3 simulated buys and 2 simulated sells/);assert.match(html,/60% buys/);
+ assert.match(html,/Preview shuffled schedule/);assert.match(html,/Pause practice/);
+});
+
+test('token creation is gated by backup confirmation, not the funded-wallet balance', () => {
+ for(const backedUp of [false,true]) {
+  let index=0;
+  const key={toBase58:() => 'PublicTestAddress'};
+  const mockReact={...React,useState: initial => {
+   const current=index++;
+   const value=current===0 ? {treasury:{publicKey:key},mint:{publicKey:key},wallets:[]} : current===6 ? backedUp : current===9 ? [10000000000] : typeof initial==='function' ? initial() : initial;
+   return [value,() => {}];
+  }};
+  const Component=load('src/components/SolanaStudio.tsx',{'react':mockReact},{TextEncoder,TextDecoder}).default;
+  const html=renderToStaticMarkup(React.createElement(ChakraProvider,null,React.createElement(Component)));
+  const button=html.match(/<button\b[^>]*>Create token<\/button>/)?.[0];
+  assert.ok(button);assert.equal(button.includes('disabled='),!backedUp);
+  if(!backedUp) assert.match(html,/Create token is paused until you save your encrypted backup/);
+ }
 });
