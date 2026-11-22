@@ -53,6 +53,31 @@ test('Solana studio displays the forty-wallet flow and safe initial action gates
  assert.match(html, /DEVNET/); assert.match(html, /Create trading pool/); assert.match(html, /Prepare batch for review/);
  assert.match(html, /Unlock or create your wallets first/);
  assert.match(html, /SIMULATION - NO TRANSACTIONS/);
+ assert.match(html, /Wallet holdings and selling/);assert.match(html,/each sale requires a fresh review/);
+});
+
+test('selling controls require a pool, backup-ready state and a resolved buy for the selected wallet',()=>{
+ const Component=load('src/components/WalletTrading.tsx').default;
+ const key={toBase58:()=> 'PublicTestWallet'};
+ const base={project:{wallets:[{publicKey:key}]},pool:'pool',disabled:false,busy:false,holdings:[],blockedWallets:[],sales:[],run:async()=>{},track:()=>{},record:()=>{},refresh:async()=>{}};
+ for(const [extra,enabled] of [[{},true],[{pool:undefined},false],[{disabled:true},false],[{blockedWallets:['PublicTestWallet']},false]]) {
+  const html=renderToStaticMarkup(React.createElement(ChakraProvider,null,React.createElement(Component,{...base,...extra})));
+  const preview=html.match(/<button\b[^>]*>Preview sale<\/button>/)?.[0];assert.ok(preview);assert.equal(preview.includes('disabled='),!enabled);
+ }
+});
+
+test('a balance refresh error after a confirmed sale does not turn its history into a failure',async()=>{
+ let index=0;const records=[];const review={used:false,walletIndex:0,tokenAmountRaw:'1000000',minimumSolRaw:'10',expectedSolRaw:'11',percent:25,slippageBps:100};
+ const mockReact={...React,useState:initial=>[index++===3?review:index===5?true:initial,()=>{}]};
+ const attempt={action:'sell',signature:'known-signature',lastValidBlockHeight:100,sale:{walletAddress:'public-wallet',tokenAmountRaw:'1000000',minimumSolRaw:'10'}};
+ const api={connection:()=>({}),submitSell:async(_rpc,_project,_review,track)=>{track(attempt);track(undefined);return attempt.signature;}};
+ const Component=load('src/components/WalletTrading.tsx',{'react':mockReact,'@/lib/solana/chain':api}).default;
+ const key={toBase58:()=> 'public-wallet'};
+ const tree=Component({project:{wallets:[{publicKey:key}]},pool:'pool',disabled:false,busy:false,holdings:[],blockedWallets:[],sales:[],run:async(_label,task)=>task(),track:()=>{},record:row=>records.push(row),refresh:async()=>{throw new Error('balance temporarily unavailable');}});
+ function find(node){if(!node||typeof node!=='object')return null;if(node.props?.children==='Confirm devnet sale')return node;for(const child of [node.props?.children].flat(Infinity)){const found=find(child);if(found)return found;}return null;}
+ const confirm=find(tree);assert.ok(confirm);assert.equal(confirm.props.isDisabled,false);
+ await assert.rejects(confirm.props.onClick(),/balance temporarily unavailable/);
+ assert.equal(records.length,2);assert.equal(records[1].status,'confirmed');
 });
 
 test('buy and sell practice clearly distinguishes synthetic events from submitted transactions', () => {

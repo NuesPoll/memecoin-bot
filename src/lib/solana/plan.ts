@@ -3,6 +3,23 @@ export const DEVNET_GENESIS = 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG';
 export const VAULT_VERSION = 'novapulse-devnet-v1';
 export type WalletResult = { address: string; status: 'ready' | 'submitted' | 'confirmed' | 'failed' | 'unknown'; signature?: string; message?: string };
 
+export function percentageAmount(rawAmount: string, percent: number): bigint {
+  if (!/^\d+$/.test(rawAmount) || !Number.isInteger(percent) || percent < 1 || percent > 100) throw new Error('Choose a whole percentage between 1 and 100.');
+  const balance = BigInt(rawAmount);
+  if (balance > BigInt('18446744073709551615')) throw new Error('The token balance is outside the supported range.');
+  const amount = balance * BigInt(percent) / BigInt(100);
+  if (amount <= BigInt(0)) throw new Error('This wallet has no spendable tokens at that percentage. Refresh holdings or choose a larger percentage.');
+  return amount;
+}
+
+export function formatUnits(rawAmount: string, decimals: number): string {
+  if (!/^\d+$/.test(rawAmount) || !Number.isInteger(decimals) || decimals < 0 || decimals > 9) throw new Error('Invalid token amount.');
+  if (!decimals) return BigInt(rawAmount).toString();
+  const padded = BigInt(rawAmount).toString().padStart(decimals + 1, '0');
+  const fraction = padded.slice(-decimals).replace(/0+$/, '');
+  return padded.slice(0, -decimals) + (fraction ? `.${fraction}` : '');
+}
+
 // Parse amounts as integers: floating-point rounding must never alter a spend cap.
 export function units(value: string, decimals: number): bigint {
   if (!/^\d+(\.\d+)?$/.test(value.trim())) throw new Error('Enter a positive decimal amount.');

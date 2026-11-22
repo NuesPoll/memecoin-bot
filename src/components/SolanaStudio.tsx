@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertIcon, Badge, Box, Button, Checkbox, FormControl, FormLabel, Heading, HStack, Input, Link, SimpleGrid, Table, Tbody, Td, Text, Th, Thead, Tr, VStack } from '@chakra-ui/react';
-import type { BatchRecord, LaunchInput, PreparedBatch, TestProject, TransactionAttempt } from '@/lib/solana/chain';
-import { WALLET_COUNT, WalletResult, batchBudget, validateLaunch } from '@/lib/solana/plan';
+import type { BatchRecord, LaunchInput, PreparedBatch, SaleRecord, TestProject, TokenHolding, TransactionAttempt } from '@/lib/solana/chain';
+import { WALLET_COUNT, WalletResult, batchBudget, formatUnits, validateLaunch } from '@/lib/solana/plan';
 import { EncryptedVault, decryptVault, encryptVault } from '@/lib/solana/vault';
 import PracticeSimulation from './PracticeSimulation';
+import WalletTrading from './WalletTrading';
 
 const STORAGE = 'novapulse.devnet.encrypted-vault.v1';
-type Progress = { input: LaunchInput; tokenCreated?: boolean; pool?: string; poolCreated?: boolean; batch?: BatchRecord; pending?: TransactionAttempt; backupAcknowledged?: boolean };
+type Progress = { input: LaunchInput; tokenCreated?: boolean; pool?: string; poolCreated?: boolean; batch?: BatchRecord; pending?: TransactionAttempt; backupAcknowledged?: boolean; sales?: SaleRecord[] };
 const initialInput: LaunchInput = { name: 'NovaPulse Test', symbol: 'NOVA', supply: '1000000', poolTokens: '100000', poolSol: '0.1' };
 const chain = () => import('@/lib/solana/chain');
 const short = (value: string) => `${value.slice(0, 6)}...${value.slice(-6)}`;
@@ -33,6 +34,8 @@ export default function SolanaStudio() {
   const [done, setDone] = useState(0);
   const [recoveryPool, setRecoveryPool] = useState('');
   const [network, setNetwork] = useState('Checking devnet connection…');
+  const [holdings, setHoldings] = useState<TokenHolding[]>([]);
+  const [balancesAt, setBalancesAt] = useState('');
   const projectRef = useRef<TestProject | null>(null);
   const progressRef = useRef<Progress>({ input: initialInput });
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -61,6 +64,7 @@ export default function SolanaStudio() {
     const nextProgress = saved ? JSON.parse(saved) as Progress : { input: initialInput };
     progressRef.current = nextProgress;
     setProgress(nextProgress); setInput(nextProgress.input); setPrepared(null); setReviewed(false); setBackupSaved(nextProgress.backupAcknowledged === true);
+    setSolBalances([]); setHoldings([]); setBalancesAt('');
   }
   async function run(label: string, task: () => Promise<void>) {
     if (running.current) return;
@@ -73,7 +77,9 @@ export default function SolanaStudio() {
   async function refresh() {
     if (!project) return;
     const api = await chain();
-    setSolBalances(await api.balances(api.connection(), project));
+    const rpc = api.connection();
+    const [native, tokens] = await Promise.all([api.balances(rpc, project), api.tokenHoldings(rpc, project)]);
+    setSolBalances(native); setHoldings(tokens); setBalancesAt(new Date().toLocaleTimeString());
   }
   async function create() {
     if (password.length < 12) throw new Error('Choose a vault password with at least 12 characters.');
@@ -101,10 +107,15 @@ export default function SolanaStudio() {
     remember({ ...progressRef.current, backupAcknowledged: true });
   }
   function lock() {
-    projectRef.current = null; setProject(null); setPrepared(null); setSolBalances([]); setBackupSaved(false); setPassword('');
+    projectRef.current = null; setProject(null); setPrepared(null); setSolBalances([]); setHoldings([]); setBalancesAt(''); setBackupSaved(false); setPassword('');
   }
   function trackTransaction(pending: TransactionAttempt | undefined) {
     remember({ ...progressRef.current, pending });
+  }
+  function recordSale(sale: SaleRecord) {
+    const sales = progressRef.current.sales || [];
+    const found = sales.some(row => row.signature === sale.signature);
+    remember({ ...progressRef.current, sales: (found ? sales.map(row => row.signature === sale.signature ? sale : row) : [...sales, sale]).slice(-100) });
   }
   async function checkPending() {
     const pending = progressRef.current.pending;
@@ -112,6 +123,7 @@ export default function SolanaStudio() {
     const api = await chain();
     const status = await api.checkTransaction(api.connection(), pending);
     if (status === 'unknown') { setNotice('The transaction result is still unknown. New submissions remain paused; check again shortly.'); return; }
+    if (pending.action === 'sell') recordSale({ ...pending, status });
     remember({ ...progressRef.current, pending: undefined, ...(status === 'confirmed' && pending.action === 'token' ? { tokenCreated: true } : {}), ...(status === 'confirmed' && pending.action === 'pool' ? { poolCreated: true } : {}) });
     await refresh();
     setNotice(status === 'confirmed' ? 'The transaction is confirmed on devnet. You can continue.' : status === 'expired' ? 'This signature was not found and its validity window has ended. Check on-chain progress before preparing this step again.' : 'The transaction failed on devnet. Check balances and on-chain progress before preparing this step again.');
@@ -131,7 +143,7 @@ export default function SolanaStudio() {
 
   return <VStack align="stretch" spacing={6} pb={12}>
     <HStack justify="space-between" flexWrap="wrap"><Heading size="xl">Solana Launch Studio</Heading><Badge colorScheme="purple" px={3} py={1}>DEVNET - TEST SOL ONLY</Badge></HStack>
-    <Text>Create a standard Solana token, seed its trading pool, and submit purchases from 40 new wallets in one coordinated batch.</Text>
+    <Text>Create a standard Solana token, seed its trading pool, manage 40 wallets, and review devnet purchases and sales.</Text>
     <Alert status="info"><AlertIcon /><Text>This online test version cannot access mainnet. Forty purchases use separate transactions; the same block and all-or-nothing execution are not guaranteed.</Text></Alert>
     <Text fontSize="sm" role="status">{network}</Text>
     {error && <Alert status="error"><AlertIcon /><Text overflowWrap="anywhere">{error}</Text></Alert>}
@@ -149,6 +161,8 @@ export default function SolanaStudio() {
       </VStack> : <VStack align="stretch" spacing={3}>
         <Text>40 buying wallets are unlocked. Launch wallet: <Link href={explorer(project.treasury.publicKey.toBase58())} isExternal>{short(project.treasury.publicKey.toBase58())}</Link></Text>
         <Text>Launch wallet balance: {solBalances.length ? `${(solBalances[0] / 1e9).toFixed(6)} test SOL` : 'Not checked yet'}</Text>
+        <Text>Launch wallet project tokens: {holdings.length ? formatUnits(holdings[0].rawAmount, 6) : 'Not checked yet'}</Text>
+        {balancesAt && <Text fontSize="sm">Balances last checked at {balancesAt}. Refresh before making a new decision.</Text>}
         <Text fontSize="sm" overflowWrap="anywhere">Launch wallet address for the faucet: {project.treasury.publicKey.toBase58()}</Text>
         <HStack flexWrap="wrap"><Button onClick={downloadBackup} isDisabled={!!busy}>Download encrypted backup</Button><Button variant="outline" onClick={() => run('Checking balances', refresh)} isDisabled={!!busy}>Refresh balances</Button><Button variant="ghost" onClick={lock} isDisabled={!!busy}>Lock vault</Button></HStack>
         {!backupSaved && <Alert status="warning"><AlertIcon /><VStack align="stretch"><Text>Save your encrypted backup to enable Create token. This protects access to your wallets; it is separate from your test SOL balance.</Text><Checkbox onChange={event => { setBackupSaved(event.target.checked); remember({ ...progressRef.current, backupAcknowledged: event.target.checked }); }}>I already saved this vault&apos;s encrypted backup and know its password.</Checkbox></VStack></Alert>}
@@ -191,8 +205,9 @@ export default function SolanaStudio() {
       {progress.batch && <VStack align="stretch" mt={4} spacing={3}><Text>{confirmed} of 40 purchases confirmed. Each row is checked against the blockchain; submission is not a confirmation.</Text><Button variant="outline" isDisabled={!!busy} onClick={() => run('Checking batch results', async () => { const api = await chain(); const record = progressRef.current.batch!; remember({ ...progressRef.current, batch: { ...record, rows: await api.checkBatch(api.connection(), record) } }); await refresh(); })}>Refresh transaction status</Button><Text fontSize="sm">This test project submits one buying batch. It never automatically creates replacement purchases after an uncertain or failed result.</Text></VStack>}
     </Box>
 
-    <PracticeSimulation />
-    {project && <Box overflowX="auto"><Heading size="md" mb={3}>Buying wallets</Heading><Table size="sm"><Thead><Tr><Th>Wallet</Th><Th>Address</Th><Th>Test SOL</Th><Th>Purchase status</Th></Tr></Thead><Tbody>{project.wallets.map((wallet, i) => { const address = wallet.publicKey.toBase58(); const row = batchRows?.find(item => item.address === address); return <Tr key={address}><Td>{i + 1}</Td><Td><Link href={explorer(address)} isExternal>{short(address)}</Link></Td><Td>{solBalances.length ? (solBalances[i + 1] / 1e9).toFixed(6) : 'Not checked'}</Td><Td>{row?.signature ? <Link href={explorer(row.signature, 'tx')} isExternal>{row.status}</Link> : row?.status || 'Not submitted'}{row?.message && <Text fontSize="sm" mt={1}>{row.message}</Text>}</Td></Tr>; })}</Tbody></Table></Box>}
+    <WalletTrading key={(project?.mint.publicKey.toBase58() || 'locked') + ':' + (progress.pool || '')} project={project} pool={progress.poolCreated ? progress.pool : undefined} disabled={disabled} busy={!!busy} holdings={holdings} blockedWallets={(batchRows || []).filter(row => row.status !== 'confirmed' && row.status !== 'failed').map(row => row.address)} sales={progress.sales || []} run={run} track={trackTransaction} record={recordSale} refresh={refresh} />
+    {project && <Box overflowX="auto"><Heading size="md" mb={3}>Buying wallets</Heading><Table size="sm"><Thead><Tr><Th>Wallet</Th><Th>Address</Th><Th>Test SOL</Th><Th>Project tokens</Th><Th>Purchase status</Th></Tr></Thead><Tbody>{project.wallets.map((wallet, i) => { const address = wallet.publicKey.toBase58(); const row = batchRows?.find(item => item.address === address); const holding = holdings.find(item => item.address === address); return <Tr key={address}><Td>{i + 1}</Td><Td><Link href={explorer(address)} isExternal>{short(address)}</Link></Td><Td>{solBalances.length ? (solBalances[i + 1] / 1e9).toFixed(6) : 'Not checked'}</Td><Td>{holding ? formatUnits(holding.rawAmount, 6) : 'Not checked'}{holding?.frozen ? ' (frozen)' : ''}</Td><Td>{row?.signature ? <Link href={explorer(row.signature, 'tx')} isExternal>{row.status}</Link> : row?.status || 'Not submitted'}{row?.message && <Text fontSize="sm" mt={1}>{row.message}</Text>}</Td></Tr>; })}</Tbody></Table></Box>}
+    <Box as="details"><Box as="summary" cursor="pointer">Optional practice simulator (no transactions)</Box><Box mt={4}><PracticeSimulation /></Box></Box>
     <Text fontSize="sm">Public launch progress and transaction signatures are saved in this browser. The encrypted backup restores keys; keep the public mint and pool addresses too when moving to another device. This version is for devnet testing and has no mainnet switch.</Text>
   </VStack>;
 }

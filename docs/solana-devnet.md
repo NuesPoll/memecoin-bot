@@ -19,7 +19,15 @@ The source is intended for Vercel, not permanent localhost hosting. Its /api/sol
 
 The existing mainnet Ethereum transaction endpoints stay blocked. Do not set live wallet credentials, seed phrases or private keys in Vercel variables. None are needed.
 
-## Recovery and limits
+## Wallet holdings and reviewed sales
+
+Refresh balances now reads both native devnet SOL and the project's Token-2022 associated token accounts for the launch wallet and forty buying wallets. Raw token values stay exact integers; missing associated accounts are zero, while wrong-owner, wrong-mint, malformed and incomplete responses fail visibly. The app creates associated token accounts for its buys. Tokens held in unrelated non-associated accounts are outside this view.
+
+The Wallet holdings and selling panel previews a single buying wallet's 25%, 50% or 100% sale into the recovered/created Raydium devnet token/WSOL pool. It checks the official devnet program and both pool mints, reads actual holdings, rejects frozen/empty accounts, refreshes owner accounts and builds a pinned-SDK swap. The review shows the exact token input, quoted output, slippage and minimum output before network fees. A checkbox and separate Confirm devnet sale action are required. Quotes expire after 30 seconds from preparation start; a consumed review cannot be used again, including concurrent submissions. A balance decrease or project change stops submission. The selected wallet needs test SOL for WSOL account rent and network fees; output is unwrapped to test SOL by the SDK.
+
+Before broadcast, the public sale intent, signature and validity window are saved alongside project progress. Failed preflight and confirmed/failed/expired/unknown results are distinct; unknown results pause further submissions until checked. History retains the latest 100 sale records and never labels an unknown or failed trade as completed. Confirmed sales remain confirmed if a subsequent balance refresh fails. User-selected sales are single reviewed actions, with no automated repeat-buy/sell or volume generation. All paths remain devnet-only. The browser-only practice simulator is optional and separate from these transaction controls.
+
+## Project recovery
 
 The encrypted backup restores key material on another device. Public progress (mint/pool flags and transaction signatures) is stored separately in the original browser. It is not yet a cross-device project journal. Save the public mint/pool addresses. The Check on-chain progress button restores verified mint/pool flags after an uncertain response or a move to another device; paste the saved pool address when needed. This devnet version intentionally permits one purchase batch per project and never silently repeats all purchases. Keep the original browser storage until checking the batch is complete. An audited mainnet release, richer recovery, and comprehensive live testing are separate milestones; this test feature must not be presented as already verified with real funds.
 
@@ -48,4 +56,4 @@ Before mint creation the app reads the actual account-rent costs, network fee an
 
 ## Current verification status
 
-The Node 22 build passed 50 automated tests, type checks, lint and the optimized production build. Vercel published the devnet preview. A live check verified the full devnet genesis hash and reached the faucet, which returned HTTP 410 and required the web faucet. The live token, pool, funding and 40-purchase run was therefore not completed. Browser inspection reached Vercel sign-in rather than the application; hosted UI interactions are not claimed verified. Mainnet remains disabled.
+The preceding source passed 69 automated tests, type checks, lint and the optimized Node 22 build. Current validation details are linked from PR #2 and the separate Verification-Solana.txt release record. The public short address is hosted on Vercel; browser inspection verified the public page and the synthetic practice controls. Live wallet creation, backup restoration, pool trading and sale signing have not been independently verified end to end. An earlier live check reached the closed RPC faucet (HTTP 410), before token/pool/funding/purchases. The complete funded on-chain flow still needs devnet verification. Mainnet remains disabled.

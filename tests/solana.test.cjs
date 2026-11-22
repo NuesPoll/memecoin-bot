@@ -4,6 +4,14 @@ const { webcrypto } = require('node:crypto');
 const { load, response } = require('./helpers.cjs');
 const globals = { TextEncoder, TextDecoder, crypto: webcrypto, btoa, atob };
 const plan = load('src/lib/solana/plan.ts', {}, globals);
+
+test('sale percentage and formatting preserve raw token precision',()=>{
+ assert.equal(plan.percentageAmount('18446744073709551615',25),4611686018427387903n);
+ assert.equal(plan.percentageAmount('101',100),101n);
+ assert.equal(plan.formatUnits('18446744073709551615',6),'18446744073709.551615');
+ assert.equal(plan.formatUnits('1000000',6),'1');assert.equal(plan.formatUnits('1',9),'0.000000001');
+ for(const [amount,percent] of [['0',25],['1',1],['10',0],['10',101],['10',1.5],['-1',25],['18446744073709551616',25]]) assert.throws(()=>plan.percentageAmount(amount,percent));
+});
 test('amount parsing preserves integer precision and rejects invalid decimals', () => {
   assert.equal(plan.units('0.000000001', 9), 1n);
   assert.equal(plan.units('1000000', 6), 1000000000000n);
