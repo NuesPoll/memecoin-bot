@@ -8,7 +8,7 @@ A read-only Next.js dashboard with four working navigation panels. Public Ethere
 
 1. Install Node.js **22 LTS** (includes npm), then extract the ZIP into a normal folder.
 2. Open that folder in VS Code and open Terminal > New Terminal.
-3. Run `npm install --legacy-peer-deps --ignore-scripts`, then `npm run dev`.
+3. Run `npm ci --legacy-peer-deps --ignore-scripts`, then `npm run dev`.
 4. Open http://localhost:3000. No environment file is needed to open and navigate the dashboard.
 
 If PowerShell blocks `npm.ps1`, use `npm.cmd` in place of `npm` in these commands. To stop the server, press Ctrl+C. For a production-style local run: `npm run build`, then `npm start`.
@@ -40,7 +40,7 @@ Set `ZERION_API_KEY` in `.env.local` or Vercel Environment Variables to the base
 
 ## Vercel
 
-Use the Next.js framework preset, Node 22.x, `npm install --legacy-peer-deps --ignore-scripts` as install command, and `npm run build` as build command. No root-directory override is needed. Configure optional variables for the relevant environment (Preview or Production), then redeploy for public variable changes to take effect. The application does not need `NEXT_PUBLIC_URL`, Alchemy, 0x or Sentry credentials. A PR preview does not update the production domain; review and merge the PR to release through the existing Git integration.
+Use the Next.js framework preset, Node 22.x, `npm ci --legacy-peer-deps --ignore-scripts` as install command, and `npm run build` as build command. No root-directory override is needed. Configure optional variables for the relevant environment (Preview or Production), then redeploy for public variable changes to take effect. The application does not need `NEXT_PUBLIC_URL`, Alchemy, 0x or Sentry credentials. A PR preview does not update the production domain; review and merge the PR to release through the existing Git integration.
 
 ## Validation
 

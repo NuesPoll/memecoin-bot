@@ -17,7 +17,7 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - run: npm install --legacy-peer-deps --ignore-scripts
+      - run: npm ci --legacy-peer-deps --ignore-scripts
       - run: npm test
       - run: npm run typecheck
       - run: npm run lint
@@ -28,6 +28,8 @@ jobs:
         with:
           name: solana-lockfile
           path: package-lock.json
-      - name: Export generated lockfile for source synchronization
-        if: always()
-        run: node -e "const z=require('node:zlib'),f=require('node:fs');const s=z.gzipSync(f.readFileSync('package-lock.json')).toString('base64');for(let i=0;i<s.length;i+=6000)console.log('NOVAPULSE_LOCK_CHUNK:'+s.slice(i,i+6000));"
+      - name: One-time live devnet smoke test
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[devnet-smoke]')
+        continue-on-error: true
+        timeout-minutes: 8
+        run: node scripts/devnet-smoke.cjs

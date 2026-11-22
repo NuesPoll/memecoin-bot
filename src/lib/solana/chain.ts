@@ -1,5 +1,5 @@
 import { Connection, Keypair, PublicKey, Signer, SystemProgram, Transaction } from '@solana/web3.js';
-import { AuthorityType, ExtensionType, LENGTH_SIZE, NATIVE_MINT, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, TYPE_SIZE, createAssociatedTokenAccountIdempotentInstruction, createInitializeMetadataPointerInstruction, createInitializeMintInstruction, createMintToInstruction, createSetAuthorityInstruction, getAssociatedTokenAddressSync, getMintLen } from '@solana/spl-token';
+import { AuthorityType, ExtensionType, LENGTH_SIZE, NATIVE_MINT, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, TYPE_SIZE, createAssociatedTokenAccountIdempotentInstruction, createInitializeMetadataPointerInstruction, createInitializeMintInstruction, createMintToInstruction, createSetAuthorityInstruction, getAssociatedTokenAddressSync, getMint, getMintLen, getTokenMetadata } from '@solana/spl-token';
 import { createInitializeInstruction, pack } from '@solana/spl-token-metadata';
 import { CurveCalculator, DEVNET_PROGRAM_ID, DEV_API_URLS, FeeOn, Raydium, TxVersion, getCpmmPdaAmmConfigId } from '@raydium-io/raydium-sdk-v2';
 import BN from 'bn.js';
@@ -120,6 +120,25 @@ export async function createPool(rpc: Connection, project: TestProject, input: L
   return { pool, signature };
 }
 
+export async function inspectProject(rpc: Connection, project: TestProject, poolAddress?: string) {
+  await assertDevnet(rpc);
+  const account = await rpc.getAccountInfo(project.mint.publicKey);
+  if (!account) return { tokenCreated: false, poolCreated: false, name: undefined, symbol: undefined };
+  if (!account.owner.equals(TOKEN_2022_PROGRAM_ID)) throw new Error('This project mint is not a Token-2022 mint.');
+  const mint = await getMint(rpc, project.mint.publicKey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+  if (mint.decimals !== 6 || mint.mintAuthority !== null || mint.freezeAuthority !== null) throw new Error('The mint does not match this fixed-supply test project.');
+  const metadata = await getTokenMetadata(rpc, project.mint.publicKey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+  let poolCreated = false;
+  if (poolAddress && await rpc.getAccountInfo(new PublicKey(poolAddress))) {
+    const raydium = await sdk(rpc, project.treasury);
+    const { poolInfo } = await raydium.cpmm.getPoolInfoFromRpc(poolAddress);
+    const pair = [poolInfo.mintA.address, poolInfo.mintB.address];
+    if (poolInfo.programId !== DEVNET_PROGRAM_ID.CREATE_CPMM_POOL_PROGRAM.toBase58() || !pair.includes(project.mint.publicKey.toBase58()) || !pair.includes(NATIVE_MINT.toBase58())) throw new Error('This pool does not match your devnet token/SOL pair.');
+    poolCreated = true;
+  }
+  return { tokenCreated: true, poolCreated, name: metadata?.name, symbol: metadata?.symbol };
+}
+
 export async function fundWallets(rpc: Connection, project: TestProject, amount: string) {
   await assertDevnet(rpc);
   const { perWallet } = batchBudget(amount, project.wallets.length, 100);
@@ -164,6 +183,8 @@ export async function prepareBatch(rpc: Connection, project: TestProject, poolId
     const built = await raydium.cpmm.swap({ poolInfo, poolKeys, inputAmount: new BN(budget.perWallet.toString()), swapResult: conservative, baseIn, slippage: slippageBps / 10_000, txVersion: TxVersion.LEGACY, config: { associatedOnly: false } });
     prepared.push({ address: wallet.publicKey.toBase58(), built });
     onProgress(prepared.length);
+    // Leave room under public devnet RPC per-method request limits while preparing.
+    if (prepared.length < WALLET_COUNT) await pause(650);
   }
   return { prepared, minimumTokens: conservative.outputAmount.muln(10_000 - slippageBps).divn(10_000).toString(), amount, poolId, slippageBps, createdAt: Date.now() };
 }

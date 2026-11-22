@@ -30,6 +30,7 @@ export default function SolanaStudio() {
   const [prepared, setPrepared] = useState<PreparedBatch | null>(null);
   const [reviewed, setReviewed] = useState(false);
   const [done, setDone] = useState(0);
+  const [recoveryPool, setRecoveryPool] = useState('');
   const projectRef = useRef<TestProject | null>(null);
   const progressRef = useRef<Progress>({ input: initialInput });
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -124,6 +125,8 @@ export default function SolanaStudio() {
         <Text>Launch wallet balance: {solBalances.length ? `${(solBalances[0] / 1e9).toFixed(6)} test SOL` : 'Not checked yet'}</Text>
         <HStack flexWrap="wrap"><Button onClick={downloadBackup} isDisabled={!!busy}>Download encrypted backup</Button><Button variant="outline" onClick={() => run('Checking balances', refresh)} isDisabled={!!busy}>Refresh balances</Button><Button variant="ghost" onClick={lock} isDisabled={!!busy}>Lock vault</Button></HStack>
         {!backupSaved && <Text>Download the encrypted backup to unlock the next steps.</Text>}
+        <Field label="Pool address for recovery (optional)" value={recoveryPool} disabled={!!busy} onChange={setRecoveryPool} />
+        <Button variant="outline" isDisabled={!!busy} onClick={() => run('Checking existing token and pool', async () => { const api = await chain(); const pool = recoveryPool.trim() || progressRef.current.pool; const found = await api.inspectProject(api.connection(), project, pool); const recoveredInput = { ...progressRef.current.input, name: found.name || progressRef.current.input.name, symbol: found.symbol || progressRef.current.input.symbol }; setInput(recoveredInput); remember({ ...progressRef.current, ...found, input: recoveredInput, pool }); await refresh(); setNotice(found.tokenCreated ? 'The existing token and pool progress were checked against devnet.' : 'No token exists for this project yet.'); })}>Check on-chain progress</Button>
         <HStack flexWrap="wrap"><Button variant="outline" isDisabled={disabled} onClick={() => run('Requesting test SOL', async () => { const api = await chain(); const signature = await api.requestTestSol(api.connection(), project); await refresh(); setNotice(`Test SOL received. Transaction: ${signature}`); })}>Request 2 test SOL</Button><Link href="https://faucet.solana.com/" isExternal>Open Solana devnet faucet</Link></HStack>
       </VStack>}
     </Box>
