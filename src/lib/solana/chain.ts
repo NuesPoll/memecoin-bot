@@ -1,5 +1,5 @@
 import { Connection, Keypair, PublicKey, Signer, SystemProgram, Transaction } from '@solana/web3.js';
-import { AuthorityType, ExtensionType, LENGTH_SIZE, NATIVE_MINT, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, TYPE_SIZE, createAssociatedTokenAccountIdempotentInstruction, createInitializeMetadataPointerInstruction, createInitializeMintInstruction, createMintToInstruction, createSetAuthorityInstruction, getAssociatedTokenAddressSync, getMint, getMintLen, getTokenMetadata } from '@solana/spl-token';
+import { AuthorityType, ExtensionType, LENGTH_SIZE, NATIVE_MINT, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, TYPE_SIZE, createAssociatedTokenAccountIdempotentInstruction, createInitializeMetadataPointerInstruction, createInitializeMintInstruction, createMintToInstruction, createSetAuthorityInstruction, getAssociatedTokenAddressSync, getMint, getMintLen, getAccountLen, getTokenMetadata } from '@solana/spl-token';
 import { createInitializeInstruction, pack } from '@solana/spl-token-metadata';
 import { CurveCalculator, DEVNET_PROGRAM_ID, DEV_API_URLS, FeeOn, Raydium, TxVersion, getCpmmPdaAmmConfigId } from '@raydium-io/raydium-sdk-v2';
 import BN from 'bn.js';
@@ -9,6 +9,8 @@ import { DEVNET_GENESIS, WALLET_COUNT, WalletResult, batchBudget, submitWave, va
 export type TestProject = { treasury: Keypair; mint: Keypair; wallets: Keypair[] };
 export type LaunchInput = { name: string; symbol: string; supply: string; poolTokens: string; poolSol: string };
 export type BatchRecord = { rows: WalletResult[]; lastValidBlockHeight: number };
+export type TransactionAttempt = { signature: string; lastValidBlockHeight: number; action: 'token' | 'pool' | 'funding' };
+type TrackTransaction = (attempt: TransactionAttempt | undefined) => void;
 type BuiltTransaction = { transaction: Transaction; signers: Signer[] };
 
 export function generateProject(): TestProject {
@@ -47,15 +49,47 @@ async function waitForSignature(rpc: Connection, signature: string) {
   throw new Error(`Confirmation is still unknown. Check ${signature} before trying again.`);
 }
 
-async function send(rpc: Connection, tx: Transaction, signers: Signer[]) {
+async function send(rpc: Connection, tx: Transaction, signers: Signer[], accountCosts = 0, action: TransactionAttempt['action'] = 'token', track?: TrackTransaction) {
   await assertDevnet(rpc);
   tx.feePayer ??= signers[0].publicKey;
-  tx.recentBlockhash = (await rpc.getLatestBlockhash('confirmed')).blockhash;
+  const block = await rpc.getLatestBlockhash('confirmed');
+  tx.recentBlockhash = block.blockhash;
+  const fee = (await rpc.getFeeForMessage(tx.compileMessage(), 'confirmed')).value;
+  if (fee === null) throw new Error('The network could not estimate the transaction fee. Nothing was submitted. Try again later.');
+  const balance = await rpc.getBalance(tx.feePayer, 'confirmed');
+  const required = accountCosts + fee;
+  if (balance < required) throw new Error(`The launch wallet has ${(balance / 1e9).toFixed(9)} test SOL; this step needs at least ${(required / 1e9).toFixed(9)} test SOL for account rent and fees. Nothing was submitted. Request free devnet SOL using the launch wallet address, then refresh balances.`);
   tx.sign(...signers);
   const signature = bs58.encode(Uint8Array.from(tx.signature!));
+  track?.({ signature, lastValidBlockHeight: block.lastValidBlockHeight, action });
   try { await rpc.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 2 }); }
-  catch { throw new Error(`Submission may have failed. Check ${signature} on devnet before trying again.`); }
-  return waitForSignature(rpc, signature);
+  catch (failure) {
+    // Only our relay's fixed preflight marker proves this submission was rejected.
+    const detail = failure && typeof failure === 'object' ? (failure as { transactionMessage?: unknown }).transactionMessage : undefined;
+    if (typeof detail === 'string' && detail.startsWith('Preflight rejected: ')) {
+      track?.(undefined);
+      throw new Error(detail);
+    }
+    try {
+      const status = (await rpc.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0];
+      if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') {
+        if (!status.err) { track?.(undefined); return signature; }
+      }
+    } catch { /* Keep the persisted attempt when the status service is unavailable. */ }
+    throw new Error(`The submission response was interrupted. Use Check transaction status below before trying again. Signature: ${signature}`);
+  }
+  const confirmed = await waitForSignature(rpc, signature);
+  track?.(undefined);
+  return confirmed;
+}
+
+export async function checkTransaction(rpc: Connection, attempt: TransactionAttempt) {
+  await assertDevnet(rpc);
+  const status = (await rpc.getSignatureStatuses([attempt.signature], { searchTransactionHistory: true })).value[0];
+  if (status?.err) return 'failed' as const;
+  if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') return 'confirmed' as const;
+  if (!status && await rpc.getBlockHeight('confirmed') > attempt.lastValidBlockHeight) return 'expired' as const;
+  return 'unknown' as const;
 }
 
 export async function balances(rpc: Connection, project: TestProject) {
@@ -70,7 +104,7 @@ export async function requestTestSol(rpc: Connection, project: TestProject) {
   return waitForSignature(rpc, signature);
 }
 
-export async function createToken(rpc: Connection, project: TestProject, input: LaunchInput) {
+export async function createToken(rpc: Connection, project: TestProject, input: LaunchInput, track?: TrackTransaction) {
   await assertDevnet(rpc);
   const amounts = validateLaunch(input.name, input.symbol, input.supply, input.poolTokens, input.poolSol);
   if (await rpc.getAccountInfo(project.mint.publicKey)) throw new Error('This project mint already exists. Restore its public progress instead of creating it again.');
@@ -91,14 +125,15 @@ export async function createToken(rpc: Connection, project: TestProject, input: 
     createMintToInstruction(mint, ata, owner, amounts.total, [], TOKEN_2022_PROGRAM_ID),
     createSetAuthorityInstruction(mint, owner, AuthorityType.MintTokens, null, [], TOKEN_2022_PROGRAM_ID),
   );
-  return send(rpc, tx, [project.treasury, project.mint]);
+  const tokenAccountRent = await rpc.getMinimumBalanceForRentExemption(getAccountLen([ExtensionType.ImmutableOwner]));
+  return send(rpc, tx, [project.treasury, project.mint], rent + tokenAccountRent, 'token', track);
 }
 
 async function sdk(rpc: Connection, owner: Keypair) {
   return Raydium.load({ owner, connection: rpc, cluster: 'devnet', disableLoadToken: true, disableFeatureCheck: true, blockhashCommitment: 'confirmed', urlConfigs: { ...DEV_API_URLS, BASE_HOST: 'https://api-v3-devnet.raydium.io', OWNER_BASE_HOST: 'https://owner-v1-devnet.raydium.io', SWAP_HOST: 'https://transaction-v1-devnet.raydium.io' } });
 }
 
-export async function createPool(rpc: Connection, project: TestProject, input: LaunchInput, rememberPool: (address: string) => void) {
+export async function createPool(rpc: Connection, project: TestProject, input: LaunchInput, rememberPool: (address: string) => void, track?: TrackTransaction) {
   await assertDevnet(rpc);
   const amounts = validateLaunch(input.name, input.symbol, input.supply, input.poolTokens, input.poolSol);
   const raydium = await sdk(rpc, project.treasury);
@@ -116,7 +151,7 @@ export async function createPool(rpc: Connection, project: TestProject, input: L
   const pool = built.extInfo.address.poolId.toBase58();
   rememberPool(pool);
   if (await rpc.getAccountInfo(new PublicKey(pool))) throw new Error('This pool already exists. Verify its state and continue to funding.');
-  const signature = await send(rpc, built.transaction, built.signers);
+  const signature = await send(rpc, built.transaction, built.signers, 0, 'pool', track);
   return { pool, signature };
 }
 
@@ -139,7 +174,7 @@ export async function inspectProject(rpc: Connection, project: TestProject, pool
   return { tokenCreated: true, poolCreated, name: metadata?.name, symbol: metadata?.symbol };
 }
 
-export async function fundWallets(rpc: Connection, project: TestProject, amount: string) {
+export async function fundWallets(rpc: Connection, project: TestProject, amount: string, track?: TrackTransaction) {
   await assertDevnet(rpc);
   const { perWallet } = batchBudget(amount, project.wallets.length, 100);
   // Reserve covers WSOL/token account rent and fees; unused test SOL stays in each wallet.
@@ -152,7 +187,7 @@ export async function fundWallets(rpc: Connection, project: TestProject, amount:
   for (let i = 0; i < transfers.length; i += 8) {
     const tx = new Transaction();
     for (const { wallet, needed } of transfers.slice(i, i + 8)) tx.add(SystemProgram.transfer({ fromPubkey: project.treasury.publicKey, toPubkey: wallet.publicKey, lamports: needed }));
-    await send(rpc, tx, [project.treasury]);
+    await send(rpc, tx, [project.treasury], 0, 'funding', track);
   }
 }
 

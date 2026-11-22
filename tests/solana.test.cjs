@@ -86,3 +86,35 @@ test('hosted health status reports only a verified devnet connection', async () 
  const res = response(); await handler({method: 'GET'}, res);
  assert.equal(res.code, 200); assert.equal(res.body.mainnetEnabled, false); assert.equal(res.body.rpcFaucetAvailable, false);
 });
+
+test('preflight errors preserve a safe explanation without provider credentials or raw logs', async () => {
+ for (const [err, expected] of [['InsufficientFundsForFee', /needs free devnet SOL/], [{InsufficientFundsForRent:{account_index:0}}, /account rent/], [{InstructionError:[3,{Custom:1}]}, /Instruction 4.*code 1/]]) {
+  const handler = rpc(async (_url, opts) => ({ok:true,json:async () => JSON.parse(opts.body).method === 'getGenesisHash' ? {result:plan.DEVNET_GENESIS} : {error:{code:-32002,message:'https://provider.example?token=secret',data:{err,logs:['private provider token']}}}}));
+  const res=response(); await handler(post('sendTransaction',['bytes',{skipPreflight:false}]),res);
+  assert.match(res.body.error.message,/^Preflight rejected:/); assert.match(res.body.error.message,expected);
+  assert.doesNotMatch(JSON.stringify(res.body),/secret|provider|private/);
+ }
+});
+
+test('read-only transaction lookup validates signatures and refuses writes before network access', async () => {
+ const handler=load('src/pages/api/solana/transaction.ts').default;
+ for(const req of [{method:'POST',query:{}},{method:'GET',query:{signature:'private-key-or-url'}}]) {
+  const res=response(); await handler(req,res); assert.ok([400,405].includes(res.code));
+ }
+});
+
+test('read-only lookup reports absent, confirmed and failed transactions without implying absence is failure', async () => {
+ for(const [state,expected] of [[null,'not-found'],[{err:null,confirmationStatus:'confirmed'},'confirmed'],[{err:'InsufficientFundsForFee',confirmationStatus:'confirmed'},'failed']]) {
+  const handler=load('src/pages/api/solana/transaction.ts',{}, {fetch:async (_url,opts) => ({ok:true,json:async () => ({result:JSON.parse(opts.body).method === 'getGenesisHash' ? plan.DEVNET_GENESIS : {value:[state]}})})}).default;
+  const res=response(); await handler({method:'GET',query:{signature:'3'.repeat(88)}},res);
+  assert.equal(res.code,200); assert.equal(res.body.status,expected);
+  if(!state) assert.match(res.body.message,/does not prove/);
+ }
+});
+
+test('read-only transaction lookup rejects a misconfigured mainnet endpoint', async () => {
+ let calls=0;
+ const handler=load('src/pages/api/solana/transaction.ts',{}, {fetch:async () => {calls++;return {ok:true,json:async () => ({result:'mainnet'})};}}).default;
+ const res=response(); await handler({method:'GET',query:{signature:'3'.repeat(88)}},res);
+ assert.equal(res.code,503);assert.equal(calls,1);
+});

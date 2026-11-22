@@ -1,5 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { DEVNET_GENESIS } from '@/lib/solana/plan';
+import { describeTransactionError } from '@/lib/solana/transaction';
 
 const methods = new Set(['getGenesisHash', 'getVersion', 'getAccountInfo', 'getMultipleAccounts', 'getBalance', 'getTokenAccountsByOwner', 'getTokenAccountBalance', 'getTokenSupply', 'getLatestBlockhash', 'getBlockHeight', 'getEpochInfo', 'getMinimumBalanceForRentExemption', 'getFeeForMessage', 'getSignatureStatuses', 'simulateTransaction', 'sendTransaction', 'getProgramAccounts', 'getRecentPrioritizationFees']);
 let verifiedEndpoint: string | undefined;
@@ -25,7 +26,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const data = await response.json();
     if (!response.ok) return res.status(response.status === 429 ? 429 : 502).json({ jsonrpc: '2.0', id: body.id, error: { code: -32000, message: 'Devnet RPC is busy or unavailable. Try again later.' } });
     // Keep provider URLs/tokens out of error messages. Preserve on-chain simulation detail only.
-    if (data.error) return res.status(200).json({ jsonrpc: '2.0', id: body.id, error: { code: data.error.code, message: 'Devnet request failed. Check test SOL balance, transaction status or faucet limits.', data: body.method === 'sendTransaction' ? { err: data.error.data?.err } : undefined } });
+    if (data.error) {
+      const rejected = body.method === 'sendTransaction' && data.error.code === -32002;
+      return res.status(200).json({ jsonrpc: '2.0', id: body.id, error: { code: data.error.code, message: rejected ? `Preflight rejected: ${describeTransactionError(data.error.data?.err)}` : 'Devnet request failed. Check test SOL balance, transaction status or faucet limits.' } });
+    }
     return res.status(200).json(data);
   } catch { return res.status(503).json({ jsonrpc: '2.0', id: body.id, error: { code: -32000, message: 'Devnet RPC unavailable. No mainnet fallback is used.' } }); }
 }

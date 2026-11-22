@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertIcon, Badge, Box, Button, Checkbox, FormControl, FormLabel, Heading, HStack, Input, Link, SimpleGrid, Table, Tbody, Td, Text, Th, Thead, Tr, VStack } from '@chakra-ui/react';
-import type { BatchRecord, LaunchInput, PreparedBatch, TestProject } from '@/lib/solana/chain';
+import type { BatchRecord, LaunchInput, PreparedBatch, TestProject, TransactionAttempt } from '@/lib/solana/chain';
 import { WALLET_COUNT, WalletResult, batchBudget, validateLaunch } from '@/lib/solana/plan';
 import { EncryptedVault, decryptVault, encryptVault } from '@/lib/solana/vault';
 
 const STORAGE = 'novapulse.devnet.encrypted-vault.v1';
-type Progress = { input: LaunchInput; tokenCreated?: boolean; pool?: string; poolCreated?: boolean; batch?: BatchRecord };
+type Progress = { input: LaunchInput; tokenCreated?: boolean; pool?: string; poolCreated?: boolean; batch?: BatchRecord; pending?: TransactionAttempt };
 const initialInput: LaunchInput = { name: 'NovaPulse Test', symbol: 'NOVA', supply: '1000000', poolTokens: '100000', poolSol: '0.1' };
 const chain = () => import('@/lib/solana/chain');
-const short = (value: string) => `${value.slice(0, 6)}â€¦${value.slice(-6)}`;
+const short = (value: string) => `${value.slice(0, 6)}...${value.slice(-6)}`;
 const explorer = (value: string, type = 'address') => `https://explorer.solana.com/${type}/${encodeURIComponent(value)}?cluster=devnet`;
 function Field({ label, value, onChange, disabled = false }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean }) {
   return <FormControl><FormLabel>{label}</FormLabel><Input aria-label={label} value={value} onChange={event => onChange(event.target.value)} isDisabled={disabled} /></FormControl>;
@@ -100,26 +100,40 @@ export default function SolanaStudio() {
   function lock() {
     projectRef.current = null; setProject(null); setPrepared(null); setSolBalances([]); setBackupSaved(false); setPassword('');
   }
+  function trackTransaction(pending: TransactionAttempt | undefined) {
+    remember({ ...progressRef.current, pending });
+  }
+  async function checkPending() {
+    const pending = progressRef.current.pending;
+    if (!pending) return;
+    const api = await chain();
+    const status = await api.checkTransaction(api.connection(), pending);
+    if (status === 'unknown') { setNotice('The transaction result is still unknown. New submissions remain paused; check again shortly.'); return; }
+    remember({ ...progressRef.current, pending: undefined, ...(status === 'confirmed' && pending.action === 'token' ? { tokenCreated: true } : {}), ...(status === 'confirmed' && pending.action === 'pool' ? { poolCreated: true } : {}) });
+    await refresh();
+    setNotice(status === 'confirmed' ? 'The transaction is confirmed on devnet. You can continue.' : status === 'expired' ? 'This signature was not found and its validity window has ended. Check on-chain progress before preparing this step again.' : 'The transaction failed on devnet. Check balances and on-chain progress before preparing this step again.');
+  }
   function updateRow(row: WalletResult) {
     const current = progressRef.current;
     if (!current.batch) return;
     remember({ ...current, batch: { ...current.batch, rows: current.batch.rows.map(previous => previous.address === row.address ? row : previous) } });
   }
-  const disabled = !!busy || !project || !backupSaved;
+  const disabled = !!busy || !project || !backupSaved || !!progress.pending;
   const batchRows = progress.batch?.rows;
-  const settingsLocked = !!progress.tokenCreated || !!progress.poolCreated || !!progress.batch;
+  const settingsLocked = !!progress.tokenCreated || !!progress.poolCreated || !!progress.batch || !!progress.pending;
   const confirmed = batchRows?.filter(row => row.status === 'confirmed').length || 0;
-  let totalSpend = 'â€”';
+  let totalSpend = '-';
   try { totalSpend = (Number(batchBudget(buyAmount, WALLET_COUNT, Math.round(Number(slippage) * 100)).total) / 1e9).toString(); } catch { /* Validation appears when the user prepares a batch. */ }
 
   return <VStack align="stretch" spacing={6} pb={12}>
-    <HStack justify="space-between" flexWrap="wrap"><Heading size="xl">Solana Launch Studio</Heading><Badge colorScheme="purple" px={3} py={1}>DEVNET Â· TEST SOL ONLY</Badge></HStack>
+    <HStack justify="space-between" flexWrap="wrap"><Heading size="xl">Solana Launch Studio</Heading><Badge colorScheme="purple" px={3} py={1}>DEVNET - TEST SOL ONLY</Badge></HStack>
     <Text>Create a standard Solana token, seed its trading pool, and submit purchases from 40 new wallets in one coordinated batch.</Text>
     <Alert status="info"><AlertIcon /><Text>This online test version cannot access mainnet. Forty purchases use separate transactions; the same block and all-or-nothing execution are not guaranteed.</Text></Alert>
     <Text fontSize="sm" role="status">{network}</Text>
     {error && <Alert status="error"><AlertIcon /><Text overflowWrap="anywhere">{error}</Text></Alert>}
     {notice && <Alert status="success"><AlertIcon /><Text>{notice}</Text></Alert>}
-    {busy && <Alert status="info" role="status"><AlertIcon />{busy}{busy === 'Preparing purchases' ? ` (${done}/40)` : ''}â€¦</Alert>}
+    {busy && <Alert status="info" role="status"><AlertIcon />{busy}{busy === 'Preparing purchases' ? ` (${done}/40)` : ''}...</Alert>}
+    {progress.pending && <Box borderWidth="1px" rounded="lg" p={5}><Text>One {progress.pending.action} transaction needs a status check. New submissions are paused to avoid repeating it.</Text><Link href={explorer(progress.pending.signature, 'tx')} isExternal overflowWrap="anywhere">View devnet transaction</Link><Button ml={3} isDisabled={!!busy || !project} onClick={() => run('Checking transaction', checkPending)}>Check transaction status</Button></Box>}
 
     <Box borderWidth="1px" rounded="lg" p={5}><Heading size="md" mb={3}>Wallets and backup</Heading>
       {!project ? <VStack align="stretch" spacing={3}>
@@ -131,6 +145,7 @@ export default function SolanaStudio() {
       </VStack> : <VStack align="stretch" spacing={3}>
         <Text>40 buying wallets are unlocked. Launch wallet: <Link href={explorer(project.treasury.publicKey.toBase58())} isExternal>{short(project.treasury.publicKey.toBase58())}</Link></Text>
         <Text>Launch wallet balance: {solBalances.length ? `${(solBalances[0] / 1e9).toFixed(6)} test SOL` : 'Not checked yet'}</Text>
+        <Text fontSize="sm" overflowWrap="anywhere">Launch wallet address for the faucet: {project.treasury.publicKey.toBase58()}</Text>
         <HStack flexWrap="wrap"><Button onClick={downloadBackup} isDisabled={!!busy}>Download encrypted backup</Button><Button variant="outline" onClick={() => run('Checking balances', refresh)} isDisabled={!!busy}>Refresh balances</Button><Button variant="ghost" onClick={lock} isDisabled={!!busy}>Lock vault</Button></HStack>
         {!backupSaved && <Text>Download the encrypted backup to unlock the next steps.</Text>}
         <Field label="Pool address for recovery (optional)" value={recoveryPool} disabled={!!busy} onChange={setRecoveryPool} />
@@ -150,8 +165,8 @@ export default function SolanaStudio() {
       </SimpleGrid>
       <Text mt={3}>The token uses Solana Token-2022 with 6 decimals, a fixed supply, and no freeze authority. Creating the Raydium devnet pool also uses test SOL for rent and its pool-creation fee.</Text>
       <HStack mt={4} flexWrap="wrap">
-        <Button isDisabled={disabled || !!progress.tokenCreated} onClick={() => run('Creating token', async () => { if (!project) return; validateLaunch(input.name, input.symbol, input.supply, input.poolTokens, input.poolSol); remember({ ...progressRef.current, input }); const api = await chain(); const signature = await api.createToken(api.connection(), project, input); remember({ ...progressRef.current, tokenCreated: true }); await refresh(); setNotice(`Token confirmed on devnet. Transaction: ${signature}`); })}>{progress.tokenCreated ? 'Token created' : 'Create token'}</Button>
-        <Button isDisabled={disabled || !progress.tokenCreated || !!progress.poolCreated} onClick={() => run('Creating trading pool', async () => { if (!project) return; const api = await chain(); const result = await api.createPool(api.connection(), project, progressRef.current.input, pool => remember({ ...progressRef.current, pool })); remember({ ...progressRef.current, pool: result.pool, poolCreated: true }); await refresh(); setNotice('The devnet trading pool is confirmed.'); })}>{progress.poolCreated ? 'Pool created' : 'Create trading pool'}</Button>
+        <Button isDisabled={disabled || !!progress.tokenCreated} onClick={() => run('Creating token', async () => { if (!project) return; validateLaunch(input.name, input.symbol, input.supply, input.poolTokens, input.poolSol); remember({ ...progressRef.current, input }); const api = await chain(); await refresh(); const signature = await api.createToken(api.connection(), project, input, trackTransaction); remember({ ...progressRef.current, tokenCreated: true }); await refresh(); setNotice(`Token confirmed on devnet. Transaction: ${signature}`); })}>{progress.tokenCreated ? 'Token created' : 'Create token'}</Button>
+        <Button isDisabled={disabled || !progress.tokenCreated || !!progress.poolCreated} onClick={() => run('Creating trading pool', async () => { if (!project) return; const api = await chain(); const result = await api.createPool(api.connection(), project, progressRef.current.input, pool => remember({ ...progressRef.current, pool }), trackTransaction); remember({ ...progressRef.current, pool: result.pool, poolCreated: true }); await refresh(); setNotice('The devnet trading pool is confirmed.'); })}>{progress.poolCreated ? 'Pool created' : 'Create trading pool'}</Button>
       </HStack>
       {project && <Text mt={3}>Token mint: <Link href={explorer(project.mint.publicKey.toBase58())} isExternal>{short(project.mint.publicKey.toBase58())}</Link></Text>}
       {progress.pool && <Text mt={2}>Pool: <Link href={explorer(progress.pool)} isExternal>{short(progress.pool)}</Link></Text>}
@@ -164,7 +179,7 @@ export default function SolanaStudio() {
       </SimpleGrid>
       <Text mt={3}>Purchase cap: {totalSpend} test SOL across 40 wallets, plus account rent and network fees. Each wallet gets a 0.01 test SOL reserve when funded; unused reserves stay in that wallet.</Text>
       <HStack mt={4} flexWrap="wrap">
-        <Button variant="outline" isDisabled={disabled || !progress.poolCreated || !!progress.batch} onClick={() => run('Funding buying wallets', async () => { if (!project) return; const api = await chain(); await api.fundWallets(api.connection(), project, buyAmount); await refresh(); setNotice('All 40 wallets are funded for this test batch.'); })}>Fund 40 wallets</Button>
+        <Button variant="outline" isDisabled={disabled || !progress.poolCreated || !!progress.batch} onClick={() => run('Funding buying wallets', async () => { if (!project) return; const api = await chain(); await api.fundWallets(api.connection(), project, buyAmount, trackTransaction); await refresh(); setNotice('All 40 wallets are funded for this test batch.'); })}>Fund 40 wallets</Button>
         <Button isDisabled={disabled || !progress.poolCreated || !!progress.batch} onClick={() => run('Preparing purchases', async () => { if (!project || !progress.pool) return; setDone(0); setReviewed(false); const api = await chain(); setPrepared(await api.prepareBatch(api.connection(), project, progress.pool, buyAmount, Math.round(Number(slippage) * 100), setDone)); })}>Prepare batch for review</Button>
       </HStack>
       {prepared && !progress.batch && <VStack align="stretch" mt={4} spacing={3}><Alert status="info"><AlertIcon /><Text>40 purchases prepared. Each wallet&apos;s minimum is {(Number(prepared.minimumTokens) / 1e6).toLocaleString()} tokens, calculated conservatively for the whole batch. Review expires after 30 seconds; submission then refreshes the signing blockhash.</Text></Alert><Checkbox isChecked={reviewed} onChange={event => setReviewed(event.target.checked)}>I reviewed the total, per-wallet amount and minimum received. I understand individual purchases may fail.</Checkbox><Button colorScheme="purple" isDisabled={!reviewed || disabled} onClick={() => run('Submitting 40 purchases', async () => { const api = await chain(); await api.submitBatch(api.connection(), prepared, batch => remember({ ...progressRef.current, batch }), updateRow); const record = progressRef.current.batch!; const rows = await api.checkBatch(api.connection(), record); remember({ ...progressRef.current, batch: { ...record, rows } }); setPrepared(null); setNotice('The batch was submitted. Refresh transaction status until results are confirmed.'); })}>Submit 40-wallet test batch</Button></VStack>}

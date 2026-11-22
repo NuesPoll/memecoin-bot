@@ -32,6 +32,12 @@ Primary implementation references:
 - https://github.com/raydium-io/raydium-sdk-V2-demo/blob/master/src/cpmm/createCpmmPool.ts
 - https://github.com/raydium-io/raydium-sdk-V2-demo/blob/master/src/cpmm/swap.ts
 
+## Token-creation error recovery
+
+The public devnet website is https://novapulse-nine.vercel.app. Old preview deployment addresses are immutable and may still contain earlier errors. Browser vault storage belongs to each address separately: download the encrypted backup on the original address and restore that same backup on the updated address. Do not create a replacement vault to recover an existing project.
+
+Before mint creation the app reads the actual account-rent costs, network fee and launch-wallet balance. An unfunded wallet is stopped before broadcast with the required test SOL amount and a faucet instruction. RPC preflight errors receive fixed explanations rather than provider URLs or raw logs. A signed attempt is saved before broadcast; interrupted results pause new transactions and expose a status check. Failed/expired results do not trigger automatic replacement transactions. The public read-only /api/solana/transaction?signature= endpoint verifies devnet before looking up a public signature. An absent signature alone is not proof of failed submission.
+
 ## Current verification status
 
 The Node 22 build passed 50 automated tests, type checks, lint and the optimized production build. Vercel published the devnet preview. A live check verified the full devnet genesis hash and reached the faucet, which returned HTTP 410 and required the web faucet. The live token, pool, funding and 40-purchase run was therefore not completed. Browser inspection reached Vercel sign-in rather than the application; hosted UI interactions are not claimed verified. Mainnet remains disabled.
