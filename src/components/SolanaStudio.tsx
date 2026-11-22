@@ -8,6 +8,8 @@ import PracticeSimulation from './PracticeSimulation';
 import WalletTrading from './WalletTrading';
 import { ActivityExplorer, CopyAddress, LaunchChecklist } from './WorkspaceTools';
 import StudioChrome, { StudioOverview, StudioIcon, studioViews, StudioView } from './StudioChrome';
+import Treasury from './Treasury';
+import { CollectionRecord, collectionUnresolved, rememberCollection } from '@/lib/solana/treasury-plan';
 
 const STORAGE = 'novapulse.devnet.encrypted-vault.v1';
 const initialInput: LaunchInput = { name: 'NovaPulse Test', symbol: 'NOVA', supply: '1000000', poolTokens: '100000', poolSol: '0.1' };
@@ -81,7 +83,7 @@ export default function SolanaStudio() {
     else setBackupCurrent(false);
   }
   function install(next: TestProject, recovered?: Progress, restoring = false) {
-    const identity = { mintAddress: next.mint.publicKey.toBase58(), walletAddresses: next.wallets.map(wallet => wallet.publicKey.toBase58()) };
+    const identity = { mintAddress: next.mint.publicKey.toBase58(), walletAddresses: next.wallets.map(wallet => wallet.publicKey.toBase58()), launchAddress: next.treasury.publicKey.toBase58() };
     const saved = localStorage.getItem(`${STORAGE}.public.${next.mint.publicKey.toBase58()}`);
     // Existing local records may be newer than a downloaded snapshot; never replace them silently.
     let local: Progress | undefined;
@@ -126,7 +128,7 @@ export default function SolanaStudio() {
     const api = await chain();
     const opened = await openVault(encrypted, password);
     const next = api.restoreProject(opened.payload);
-    const recovered = recoveredProgress(opened.payload, { mintAddress: next.mint.publicKey.toBase58(), walletAddresses: next.wallets.map(wallet => wallet.publicKey.toBase58()) });
+    const recovered = recoveredProgress(opened.payload, { mintAddress: next.mint.publicKey.toBase58(), walletAddresses: next.wallets.map(wallet => wallet.publicKey.toBase58()), launchAddress: next.treasury.publicKey.toBase58() });
     install(next, recovered?.progress, true);
     vaultSession.current = opened.session;
     localStorage.setItem(STORAGE, JSON.stringify(encrypted));
@@ -137,7 +139,7 @@ export default function SolanaStudio() {
     if (!project || !vaultSession.current) throw new Error('Unlock your vault before downloading a complete backup.');
     const api = await chain(), savedAt = new Date().toISOString();
     const nextProgress = { ...progressRef.current, input, backupAcknowledged: true };
-    const payload = backupPayload(api.serializeProject(project), nextProgress, { mintAddress: project.mint.publicKey.toBase58(), walletAddresses: project.wallets.map(wallet => wallet.publicKey.toBase58()) }, savedAt);
+    const payload = backupPayload(api.serializeProject(project), nextProgress, { mintAddress: project.mint.publicKey.toBase58(), walletAddresses: project.wallets.map(wallet => wallet.publicKey.toBase58()), launchAddress: project.treasury.publicKey.toBase58() }, savedAt);
     const vault = await vaultSession.current.seal(payload);
     const url = URL.createObjectURL(new Blob([JSON.stringify(vault)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = `NovaPulse-devnet-project-${savedAt.slice(0, 10)}.json`; link.click();
@@ -158,6 +160,9 @@ export default function SolanaStudio() {
     const found = sales.some(row => row.signature === sale.signature);
     remember({ ...progressRef.current, sales: (found ? sales.map(row => row.signature === sale.signature ? sale : row) : [...sales, sale]).slice(-100) });
   }
+  function recordCollection(next: CollectionRecord) {
+    remember({ ...progressRef.current, collections: rememberCollection(progressRef.current.collections || [], next) });
+  }
   async function checkPending() {
     const pending = progressRef.current.pending;
     if (!pending) return;
@@ -174,7 +179,8 @@ export default function SolanaStudio() {
     if (!current.batch) return;
     remember({ ...current, batch: { ...current.batch, rows: current.batch.rows.map(previous => previous.address === row.address ? row : previous) } });
   }
-  const disabled = !!busy || !project || !backupSaved || !!progress.pending || !!progress.recoveryRequired;
+  const collectionPending = collectionUnresolved(progress.collections || []);
+  const disabled = !!busy || !project || !backupSaved || !!progress.pending || !!progress.recoveryRequired || collectionPending;
   const tradingPaused = disabled || !!progress.historyMissing;
   const batchRows = progress.batch?.rows;
   const settingsLocked = !!progress.tokenCreated || !!progress.poolCreated || !!progress.batch || !!progress.pending || !!progress.recoveryRequired;
@@ -192,6 +198,7 @@ export default function SolanaStudio() {
     {project && progress.recoveryRequired && <Alert status="warning"><AlertIcon /><VStack align="stretch"><Text>Restore checkpoint: verify this project on devnet before creating or trading. Imported confirmations are rechecked rather than assumed.</Text><Button variant="link" alignSelf="start" onClick={() => navigate('wallets')}>Open recovery controls</Button></VStack></Alert>}
     {project && progress.historyMissing && !progress.recoveryRequired && <Alert status="warning"><AlertIcon /><Text>This wallet-only backup has no trading history in this browser. Trading stays paused to avoid repeating old transactions. Use the original browser or restore a recent complete project backup. If the token has not been created, an on-chain check can safely clear this pause.</Text></Alert>}
     {progress.pending && <Box borderWidth="1px" rounded="lg" p={5}><Text>One {progress.pending.action} transaction needs a status check. New submissions are paused to avoid repeating it.</Text><Link href={explorer(progress.pending.signature, 'tx')} isExternal overflowWrap="anywhere">View devnet transaction</Link><Button ml={3} isDisabled={!!busy || !project} onClick={() => run('Checking transaction', checkPending)}>Check transaction status</Button></Box>}
+    {project && collectionPending && <Alert status="warning"><AlertIcon /><VStack align="stretch"><Text>Collection transfers need a status check. New transactions are paused until these results are resolved.</Text><Button variant="link" alignSelf="start" onClick={() => navigate('treasury')}>Open collection history</Button></VStack></Alert>}
 
     </div>
     {view !== 'overview' && view !== 'practice' && <LaunchChecklist unlocked={!!project} backedUp={backupSaved} tokenCreated={!!progress.tokenCreated} poolCreated={!!progress.poolCreated} navigate={navigate} />}
@@ -268,8 +275,9 @@ export default function SolanaStudio() {
     {project && <Box className="np-panel" overflowX="auto"><Heading size="md" mb={3}>Buying wallets</Heading><Table size="sm"><Thead><Tr><Th>Wallet</Th><Th>Address</Th><Th>Test SOL</Th><Th>Project tokens</Th><Th>Purchase status</Th></Tr></Thead><Tbody>{project.wallets.map((wallet, i) => { const address = wallet.publicKey.toBase58(); const row = batchRows?.find(item => item.address === address); const holding = holdings.find(item => item.address === address); return <Tr key={address}><Td>{i + 1}</Td><Td><Link href={explorer(address)} isExternal>{short(address)}</Link></Td><Td>{solBalances.length ? (solBalances[i + 1] / 1e9).toFixed(6) : 'Not checked'}</Td><Td>{holding ? formatUnits(holding.rawAmount, 6) : 'Not checked'}{holding?.frozen ? ' (frozen)' : ''}</Td><Td>{row?.signature ? <Link href={explorer(row.signature, 'tx')} isExternal>{row.status}</Link> : row?.status || 'Not submitted'}{row?.message && <Text fontSize="sm" mt={1}>{row.message}</Text>}</Td></Tr>; })}</Tbody></Table></Box>}
     {!project && <div className="np-panel np-empty"><StudioIcon name="wallets"/><h3>Your wallet group will appear here</h3><p>Create or restore your vault above to view your 40 buying wallets and balances.</p></div>}
     </section>
+    <section className="np-view" hidden={view !== 'treasury'} aria-label="Treasury workspace"><Treasury key={project?.mint.publicKey.toBase58() || 'locked'} project={project} destination={progress.receivingAddress} disabled={disabled} busy={!!busy} records={progress.collections || []} run={run} record={recordCollection} saveDestination={receivingAddress => remember({ ...progressRef.current, receivingAddress })} refresh={refresh} navigate={navigate}/></section>
     <section className="np-view" hidden={view !== 'activity'} aria-label="Transaction activity">
-      <ActivityExplorer rows={[...(batchRows || []).map(row => ({ ...row, kind: 'Buy' as const })), ...(progress.sales || []).map(sale => ({ address: sale.sale?.walletAddress || '', signature: sale.signature, status: sale.status, kind: 'Sell' as const }))]} navigate={navigate} />
+      <ActivityExplorer rows={[...(batchRows || []).map(row => ({ ...row, kind: 'Buy' as const })), ...(progress.sales || []).map(sale => ({ address: sale.sale?.walletAddress || '', signature: sale.signature, status: sale.status, kind: 'Sell' as const })), ...(progress.collections || []).flatMap(record => record.rows.map(row => ({ ...row, destination: record.destination, kind: 'Collect' as const })))]} navigate={navigate} />
     </section>
     <section className="np-view" hidden={view !== 'practice'} aria-label="Practice workspace"><PracticeSimulation active={view === 'practice'} /></section>
     <p className="np-network-note" role="status"><StudioIcon name="shield"/>{network}</p>

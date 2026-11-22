@@ -1,6 +1,6 @@
 # NovaPulse
 
-A hosted Solana **devnet** launch studio with a responsive dashboard, encrypted wallet vault, standard Token-2022 creation, Raydium test pools, a reviewed 40-wallet buying batch and individually reviewed sales. Mainnet and real-money trading remain disabled.
+A hosted Solana **devnet** launch studio with a responsive dashboard, encrypted wallet vault, standard Token-2022 creation, Raydium test pools, a reviewed 40-wallet buying batch individually reviewed sales and reviewed SOL collection to your receiving wallet. Mainnet and real-money trading remain disabled.
 
 **Open online:** https://novapulse-nine.vercel.app — no local hosting or Discord login is required for the launch studio.
 
@@ -13,11 +13,13 @@ A hosted Solana **devnet** launch studio with a responsive dashboard, encrypted 
 5. In **Trading**, fund the buying wallets, prepare the batch, review it and explicitly submit. Forty independent transactions are used; same-block or all-or-nothing execution is not guaranteed.
 6. Refresh transaction results and holdings. To sell, select a wallet, preview its sale and confirm the fresh review. Unknown results are paused and never automatically replaced.
 
+7. In **Treasury**, paste your receiving Solana address, choose whether to include the launch wallet and choose a per-wallet reserve. Preview exact spendable test SOL and fees, verify the full address, then confirm the reviewed collection. Refresh individual results and download a fresh project backup. This moves native test SOL only; unsold tokens, liquidity positions and token-account rent stay in their existing accounts. Balances include original funding and are not reported as profit.
+
 Use the sidebar or **Ctrl/Command + K** to navigate. **Activity** searches and filters recorded buy/sale signatures. **Practice lab** is a separate synthetic demonstration and never submits a trade.
 
 ## Back up and recover
 
-New downloads encrypt wallet keys, token settings, pool address, pending signature and recorded buy/sale history together using AES-GCM. The derived encryption key stays only in the unlocked browser session; every snapshot uses a fresh random IV. Locking releases that session key. Passwords are cleared after unlocking.
+New downloads encrypt wallet keys, token settings, pool address, receiving address, pending signature and recorded buy/sale/collection history together using AES-GCM. The derived encryption key stays only in the unlocked browser session; every snapshot uses a fresh random IV. Locking releases that session key. Passwords are cleared after unlocking.
 
 A download is a **snapshot at that moment**. Download a fresh copy after transactions; a stale file cannot include later activity. Public transaction progress also stays in this browser so unfinished actions survive a reload. Private keys are never saved there unencrypted or sent to the server.
 

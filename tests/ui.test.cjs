@@ -106,7 +106,7 @@ test('token creation is gated by backup confirmation, not the funded-wallet bala
 });
 
 test('restored projects and missing legacy trade history visibly pause the relevant actions',()=>{
- for(const [extra,buttonText,reason] of [[{recoveryRequired:true},'Create token',/Restore checkpoint/],[{historyMissing:true,poolCreated:true},'Prepare batch for review',/complete trading history is needed/]]) {
+ for(const [extra,buttonText,reason] of [[{recoveryRequired:true},'Create token',/Restore checkpoint/],[{historyMissing:true,poolCreated:true},'Prepare batch for review',/complete trading history is needed/],[{collections:[{mint:'mint',destination:'destination',reserveRaw:'0',createdAt:100,lastValidBlockHeight:100,rows:[{address:'source',amountRaw:'1',feeRaw:'5000',signature:'signature',status:'unknown'}]}]},'Create token',/Collection transfers need a status check/]]) {
   let index=0;const key={toBase58:()=> 'PublicTestAddress'};
   const mockReact={...React,useState:initial=>{const current=index++;return [current===0?{treasury:{publicKey:key},mint:{publicKey:key},wallets:[]}:current===6?true:current===8?{input:{name:'Test',symbol:'T',supply:'100',poolTokens:'10',poolSol:'0.1'},...extra}:initial,()=>{}];}};
   const Component=load('src/components/SolanaStudio.tsx',{'react':mockReact},{TextEncoder,TextDecoder}).default;
@@ -121,4 +121,11 @@ test('an unresolved imported sale blocks a new sale for that wallet and exposes 
  const html=renderToStaticMarkup(React.createElement(ChakraProvider,null,React.createElement(Component,{project:{wallets:[{publicKey:key}]},pool:'pool',disabled:false,busy:false,holdings:[],blockedWallets:[],sales:[{signature:'signature',action:'sell',status:'unknown',lastValidBlockHeight:100,sale:{walletAddress:'public-wallet',tokenAmountRaw:'100',minimumSolRaw:'1'}}],run:async()=>{},track:()=>{},record:()=>{},refresh:async()=>{}})));
  assert.ok(html.match(/<button\b[^>]*>Preview sale<\/button>/)[0].includes('disabled='));
  assert.match(html,/Refresh sale history/);assert.match(html,/wallet has an unresolved sale/);
+});
+
+test('Treasury shows the receiving address, reserve and honest balance scope while locked',()=>{
+ const Component=load('src/components/Treasury.tsx').default;
+ const html=renderToStaticMarkup(React.createElement(ChakraProvider,null,React.createElement(Component,{project:null,disabled:true,busy:false,records:[],run:async()=>{},record:()=>{},saveDestination:()=>{},refresh:async()=>{},navigate:()=>{}})));
+ assert.match(html,/Your receiving Solana wallet address/);assert.match(html,/Leave test SOL in each source wallet/);assert.match(html,/Include the launch wallet/);assert.match(html,/not a profit calculation/);assert.match(html,/Unsold project tokens/);
+ assert.ok(html.match(/<button\b[^>]*>Preview collection<\/button>/)[0].includes('disabled='));assert.doesNotMatch(html,/seed phrase<\/label>/);
 });

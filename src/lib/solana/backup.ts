@@ -1,8 +1,9 @@
 import type { BatchRecord, LaunchInput, SaleRecord, TransactionAttempt } from './chain';
 import { WALLET_COUNT } from './plan';
+import { CollectionRecord, readCollections, rememberCollection } from './treasury-plan';
 
-export type ProjectProgress = { input: LaunchInput; tokenCreated?: boolean; pool?: string; poolCreated?: boolean; batch?: BatchRecord; pending?: TransactionAttempt; backupAcknowledged?: boolean; sales?: SaleRecord[]; recoveryRequired?: boolean; historyMissing?: boolean };
-export type ProjectIdentity = { mintAddress: string; walletAddresses: string[] };
+export type ProjectProgress = { input: LaunchInput; tokenCreated?: boolean; pool?: string; poolCreated?: boolean; batch?: BatchRecord; pending?: TransactionAttempt; backupAcknowledged?: boolean; sales?: SaleRecord[]; recoveryRequired?: boolean; historyMissing?: boolean; receivingAddress?: string; collections?: CollectionRecord[] };
+export type ProjectIdentity = { mintAddress: string; walletAddresses: string[]; launchAddress?: string };
 const FORMAT = 'novapulse-workspace-v2';
 const invalid = () => new Error('The project history is damaged or belongs to different wallets. Restore a valid backup; nothing was submitted.');
 function object(value: unknown): Record<string, unknown> {
@@ -54,6 +55,8 @@ export function readProgress(value: unknown, identity: ProjectIdentity): Project
     if (value !== undefined) { if (typeof value !== 'boolean') throw invalid(); result[key] = value; }
   }
   if (source.pool !== undefined) result.pool = address(source.pool);
+  if (source.receivingAddress !== undefined) result.receivingAddress = address(source.receivingAddress);
+  if (source.collections !== undefined) result.collections = readCollections(source.collections, identity.mintAddress, [...identity.walletAddresses, ...(identity.launchAddress ? [identity.launchAddress] : [])]);
   if (source.pending !== undefined) result.pending = attempt(source.pending);
   if (source.batch !== undefined) {
     const batch = object(source.batch);
@@ -96,6 +99,7 @@ export function recoveredProgress(payload: string, identity: ProjectIdentity): {
   progress.tokenCreated = false; progress.poolCreated = false; progress.recoveryRequired = true;
   if (progress.batch) progress.batch.rows = progress.batch.rows.map(row => ({ ...row, status: 'unknown' }));
   if (progress.sales) progress.sales = progress.sales.map(row => ({ ...row, status: 'unknown' }));
+  if (progress.collections) progress.collections = progress.collections.map(record => ({ ...record, rows: record.rows.map(row => ({ ...row, status: row.status === 'not_sent' ? 'not_sent' : 'unknown' })) }));
   return { progress, savedAt: record.savedAt };
 }
 
@@ -107,6 +111,8 @@ export function mergeRecoveredProgress(local: ProjectProgress | undefined, snaps
   const sales = new Map((snapshot.sales || []).map(sale => [sale.signature, sale]));
   for (const sale of local.sales || []) sales.set(sale.signature, sale);
   if (sales.size > 100) throw new Error('Combined history exceeds 100 sales. Keep both backups and use the original browser to check outstanding records.');
-  const added = (!local.batch && !!snapshot.batch) || (!local.pending && !!snapshot.pending) || sales.size > (local.sales?.length || 0) || (!!local.historyMissing && !snapshot.historyMissing);
-  return { ...local, batch: local.batch || snapshot.batch, pending: local.pending || snapshot.pending, pool: local.pool || snapshot.pool, sales: [...sales.values()], historyMissing: local.historyMissing && snapshot.historyMissing, ...(added ? { tokenCreated: false, poolCreated: false, recoveryRequired: true } : {}) };
+  let collections = snapshot.collections || [];
+  for (const record of local.collections || []) collections = rememberCollection(collections, record);
+  const added = (!local.batch && !!snapshot.batch) || (!local.pending && !!snapshot.pending) || sales.size > (local.sales?.length || 0) || collections.some(record => !(local.collections || []).some(previous => previous.rows[0].signature === record.rows[0].signature)) || (!!local.historyMissing && !snapshot.historyMissing);
+  return { ...local, batch: local.batch || snapshot.batch, pending: local.pending || snapshot.pending, pool: local.pool || snapshot.pool, receivingAddress: local.receivingAddress || snapshot.receivingAddress, collections, sales: [...sales.values()], historyMissing: local.historyMissing && snapshot.historyMissing, ...(added ? { tokenCreated: false, poolCreated: false, recoveryRequired: true } : {}) };
 }

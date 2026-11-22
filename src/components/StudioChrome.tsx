@@ -2,16 +2,17 @@ import NextLink from 'next/link';
 import type { ReactNode } from 'react';
 import { WorkspaceCommand } from './WorkspaceTools';
 
-export const studioViews = ['overview', 'launch', 'wallets', 'trading', 'activity', 'practice'] as const;
+export const studioViews = ['overview', 'launch', 'wallets', 'trading', 'treasury', 'activity', 'practice'] as const;
 export type StudioView = typeof studioViews[number];
-const labels: Record<StudioView, string> = { overview: 'Overview', launch: 'Token launch', wallets: 'Wallet manager', trading: 'Trading', activity: 'Activity', practice: 'Practice lab' };
-const descriptions: Record<StudioView, string> = { overview: 'Your next idea starts here.', launch: 'From an idea to your own Solana token.', wallets: 'One secure home for your wallet group.', trading: 'Clear amounts. Reviewed decisions.', activity: 'Every signature has a story.', practice: 'Explore the flow with virtual tokens.' };
+const labels: Record<StudioView, string> = { overview: 'Overview', launch: 'Token launch', wallets: 'Wallet manager', trading: 'Trading', treasury: 'Treasury', activity: 'Activity', practice: 'Practice lab' };
+const descriptions: Record<StudioView, string> = { overview: 'Your next idea starts here.', launch: 'From an idea to your own Solana token.', wallets: 'One secure home for your wallet group.', trading: 'Clear amounts. Reviewed decisions.', treasury: 'Your balances. One receiving wallet.', activity: 'Every signature has a story.', practice: 'Explore the flow with virtual tokens.' };
 export function StudioIcon({ name = 'overview' }: { name?: string }) {
   const paths: Record<string, ReactNode> = {
     overview: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
     launch: <><path d="M14 5c3-2 6-2 6-2s0 3-2 6l-7 7-5-5 8-6Z"/><path d="m7 10-4 1v5l4-1m7 0-1 6h-5v-4M5 18l-2 3m14-14h.01"/></>,
     wallets: <><rect x="3" y="6" width="18" height="15" rx="3"/><path d="M17 6V3L5 6m16 6h-6v5h6m-4-2.5h.01"/></>,
     trading: <><path d="M4 7h15m-4-4 4 4-4 4M20 17H5m4-4-4 4 4 4"/></>,
+    treasury: <><path d="M3 8h18L12 3 3 8Zm2 3v7m5-7v7m4-7v7m5-7v7M3 21h18"/></>,
     activity: <><path d="M3 12h4l3-8 4 16 3-8h4"/></>,
     practice: <><path d="M9 3h6m-5 0v7l-6 9a1 1 0 0 0 1 2h14a1 1 0 0 0 1-2l-6-9V3M8 15h8"/></>,
     arrow: <><path d="M5 12h14m-5-5 5 5-5 5"/></>,

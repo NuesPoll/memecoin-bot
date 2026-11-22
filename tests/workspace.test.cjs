@@ -18,3 +18,9 @@ test('transaction search handles addresses, signatures, kinds, whitespace and em
  assert.equal(filterActivity([],'all','').length,0);
  assert.equal(rows.length,6);
 });
+
+test('collection activity can be searched by its receiving destination',()=>{
+ const row={address:'Source',destination:'ReceivingWallet',signature:'KnownSignature',status:'unknown',kind:'Collect'};
+ assert.equal(filterActivity([row],'unresolved','receivingwallet').length,1);
+ assert.equal(filterActivity([row],'all','collect').length,1);
+});

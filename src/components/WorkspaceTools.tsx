@@ -9,6 +9,7 @@ const destinations: { view: StudioView; title: string; detail: string }[] = [
   { view: 'launch', title: 'Launch a token', detail: 'Token settings, supply and liquidity pool' },
   { view: 'wallets', title: 'Manage wallets', detail: 'Unlock, restore, back up and view balances' },
   { view: 'trading', title: 'Review a trade', detail: 'Buying batch and individual sales' },
+  { view: 'treasury', title: 'Collect to your wallet', detail: 'Treasury, receiving address and reviewed test SOL withdrawals' },
   { view: 'activity', title: 'Find a transaction', detail: 'Search signatures and filter recorded results' },
   { view: 'practice', title: 'Open practice lab', detail: 'Virtual wallets; no transactions' },
 ];
