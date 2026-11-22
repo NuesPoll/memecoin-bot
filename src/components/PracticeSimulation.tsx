@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertIcon, Badge, Box, Button, FormControl, FormLabel, Heading, HStack, Input, SimpleGrid, Table, Tbody, Td, Text, Th, Thead, Tr } from '@chakra-ui/react';
 import { PracticeAction, practiceSchedule } from '@/lib/solana/simulation';
 
-export default function PracticeSimulation() {
+export default function PracticeSimulation({ active = true }: { active?: boolean }) {
   const [minimum, setMinimum] = useState('2');
   const [maximum, setMaximum] = useState('5');
   const [actions, setActions] = useState<PracticeAction[]>([]);
@@ -23,6 +23,8 @@ export default function PracticeSimulation() {
     return () => clearTimeout(timer);
   }, [running, completed, actions]);
 
+  useEffect(() => { if (!active) { generation.current++; setRunning(false); } }, [active]);
+
   function preview() {
     generation.current++;
     setRunning(false); setCompleted(0); setError('');
@@ -35,7 +37,7 @@ export default function PracticeSimulation() {
   const buys = actions.slice(0, completed).filter(action => action.kind === 'buy').length;
   const next = actions[completed];
 
-  return <Box borderWidth="1px" rounded="lg" p={5}>
+  return <Box className="np-panel">
     <HStack justify="space-between" flexWrap="wrap"><Heading size="md">Shuffled buy/sell practice</Heading><Badge colorScheme="cyan">SIMULATION - NO TRANSACTIONS</Badge></HStack>
     <Alert status="info" mt={4}><AlertIcon /><Text>This is a synthetic practice run using virtual wallets and tokens. It does not use your vault, SOL, token or trading pool, and never submits trades.</Text></Alert>
     <Text mt={3}>40 virtual wallets each make 3 simulated buys and 2 simulated sells: 200 actions in shuffled order, with 60% buys overall. Each sell uses 25% of that virtual wallet&apos;s holdings. A wallet must buy before it can sell.</Text>

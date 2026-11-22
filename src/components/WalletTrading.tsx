@@ -56,7 +56,7 @@ export default function WalletTrading({ project, pool, disabled, busy, holdings,
     await refresh();
   }
 
-  return <Box borderWidth="1px" rounded="lg" p={5}>
+  return <Box className="np-panel">
     <Heading size="md">Wallet holdings and selling</Heading>
     <Text mt={3}>Preview and confirm one devnet sale from a selected buying wallet. These controls submit test-network transactions; each sale requires a fresh review.</Text>
     {!project ? <Text mt={3}>Unlock your existing vault to view holdings and choose a wallet.</Text> : <>
@@ -73,7 +73,7 @@ export default function WalletTrading({ project, pool, disabled, busy, holdings,
       {review && <VStack align="stretch" mt={4} spacing={3}>
         <Alert status="info"><AlertIcon /><Text>Wallet {review.walletIndex + 1}: sell exactly {formatUnits(review.tokenAmountRaw, 6)} project tokens ({review.percent}% at preview time). Estimated output: {formatUnits(review.expectedSolRaw, 9)} test SOL; minimum: {formatUnits(review.minimumSolRaw, 9)} test SOL before network fees. Slippage limit: {review.slippageBps / 100}%. This quote expires 30 seconds after preparation starts.</Text></Alert>
         <Checkbox isChecked={accepted} isDisabled={busy} onChange={event => setAccepted(event.target.checked)}>I reviewed the wallet, token amount, minimum received and fees for this devnet sale.</Checkbox>
-        <Button colorScheme="purple" isDisabled={unavailable || !accepted || review.used} onClick={() => run('Submitting reviewed sale', submit)}>Confirm devnet sale</Button>
+        <Button className="np-primary" colorScheme="purple" isDisabled={unavailable || !accepted || review.used} onClick={() => run('Submitting reviewed sale', submit)}>Confirm devnet sale</Button>
       </VStack>}
     </>}
     {message && <Alert mt={3} status="success"><AlertIcon /><Text overflowWrap="anywhere">{message}</Text></Alert>}

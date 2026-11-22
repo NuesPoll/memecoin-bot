@@ -5,6 +5,7 @@ import { WALLET_COUNT, WalletResult, batchBudget, formatUnits, validateLaunch } 
 import { EncryptedVault, decryptVault, encryptVault } from '@/lib/solana/vault';
 import PracticeSimulation from './PracticeSimulation';
 import WalletTrading from './WalletTrading';
+import StudioChrome, { StudioOverview, StudioIcon, studioViews, StudioView } from './StudioChrome';
 
 const STORAGE = 'novapulse.devnet.encrypted-vault.v1';
 type Progress = { input: LaunchInput; tokenCreated?: boolean; pool?: string; poolCreated?: boolean; batch?: BatchRecord; pending?: TransactionAttempt; backupAcknowledged?: boolean; sales?: SaleRecord[] };
@@ -36,6 +37,18 @@ export default function SolanaStudio() {
   const [network, setNetwork] = useState('Checking devnet connection…');
   const [holdings, setHoldings] = useState<TokenHolding[]>([]);
   const [balancesAt, setBalancesAt] = useState('');
+  const [view, setView] = useState<StudioView>('overview');
+
+  useEffect(() => {
+    const sync = () => { const value = window.location.hash.slice(1); setView(studioViews.includes(value as StudioView) ? value as StudioView : 'overview'); };
+    sync(); window.addEventListener('hashchange', sync); window.addEventListener('popstate', sync);
+    return () => { window.removeEventListener('hashchange', sync); window.removeEventListener('popstate', sync); };
+  }, []);
+  function navigate(next: StudioView) {
+    setView(next);
+    if (window.location.hash !== `#${next}`) window.history.pushState(null, '', `#${next}`);
+    window.scrollTo({ top: 0, behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth' });
+  }
   const projectRef = useRef<TestProject | null>(null);
   const progressRef = useRef<Progress>({ input: initialInput });
   const fileInput = useRef<HTMLInputElement | null>(null);
@@ -141,21 +154,24 @@ export default function SolanaStudio() {
   let totalSpend = '-';
   try { totalSpend = (Number(batchBudget(buyAmount, WALLET_COUNT, Math.round(Number(slippage) * 100)).total) / 1e9).toString(); } catch { /* Validation appears when the user prepares a batch. */ }
 
-  return <VStack align="stretch" spacing={6} pb={12}>
-    <HStack justify="space-between" flexWrap="wrap"><Heading size="xl">Solana Launch Studio</Heading><Badge colorScheme="purple" px={3} py={1}>DEVNET - TEST SOL ONLY</Badge></HStack>
-    <Text>Create a standard Solana token, seed its trading pool, manage 40 wallets, and review devnet purchases and sales.</Text>
-    <Alert status="info"><AlertIcon /><Text>This online test version cannot access mainnet. Forty purchases use separate transactions; the same block and all-or-nothing execution are not guaranteed.</Text></Alert>
-    <Text fontSize="sm" role="status">{network}</Text>
+  const recordedTrades = confirmed + (progress.sales || []).filter(sale => sale.status === 'confirmed').length;
+  return <StudioChrome view={view} navigate={navigate} unlocked={!!project} network={network}>
+    <div className="np-global-notices">
     {error && <Alert status="error"><AlertIcon /><Text overflowWrap="anywhere">{error}</Text></Alert>}
     {notice && <Alert status="success"><AlertIcon /><Text>{notice}</Text></Alert>}
     {busy && <Alert status="info" role="status"><AlertIcon />{busy}{busy === 'Preparing purchases' ? ` (${done}/40)` : ''}...</Alert>}
     {progress.pending && <Box borderWidth="1px" rounded="lg" p={5}><Text>One {progress.pending.action} transaction needs a status check. New submissions are paused to avoid repeating it.</Text><Link href={explorer(progress.pending.signature, 'tx')} isExternal overflowWrap="anywhere">View devnet transaction</Link><Button ml={3} isDisabled={!!busy || !project} onClick={() => run('Checking transaction', checkPending)}>Check transaction status</Button></Box>}
 
-    <Box borderWidth="1px" rounded="lg" p={5}><Heading size="md" mb={3}>Wallets and backup</Heading>
+    </div>
+    <section className="np-view" hidden={view !== 'overview'} aria-label="Overview workspace">
+      <StudioOverview navigate={navigate} unlocked={!!project} backedUp={backupSaved} tokenCreated={!!progress.tokenCreated} poolCreated={!!progress.poolCreated} balance={solBalances.length ? solBalances[0] : undefined} confirmed={recordedTrades} />
+    </section>
+    <section className="np-view" hidden={view !== 'wallets'} aria-label="Wallet workspace">
+    <Box className="np-panel"><Heading size="md" mb={3}>Wallets and backup</Heading>
       {!project ? <VStack align="stretch" spacing={3}>
         <Text>The vault holds 40 buying wallets and a launch wallet. Keys are generated here, encrypted with your password, and never sent to the server. Keep both the password and backup file.</Text>
         <FormControl><FormLabel htmlFor="vault-password">Vault password</FormLabel><Input id="vault-password" type="password" autoComplete="off" value={password} onChange={event => setPassword(event.target.value)} placeholder="At least 12 characters" /></FormControl>
-        <HStack flexWrap="wrap">{encrypted ? <Button onClick={() => run('Unlocking vault', unlock)} isDisabled={!!busy}>Unlock vault</Button> : <Button onClick={() => run('Creating wallets', create)} isDisabled={!!busy}>Create 40 wallets</Button>}<Button variant="outline" onClick={() => fileInput.current?.click()} isDisabled={!!busy}>Restore encrypted backup</Button></HStack>
+        <HStack flexWrap="wrap">{encrypted ? <Button onClick={() => run('Unlocking vault', unlock)} isDisabled={!!busy}>Unlock vault</Button> : <Button className="np-primary" onClick={() => run('Creating wallets', create)} isDisabled={!!busy}>Create 40 wallets</Button>}<Button variant="outline" onClick={() => fileInput.current?.click()} isDisabled={!!busy}>Restore encrypted backup</Button></HStack>
         <Input ref={fileInput} display="none" type="file" accept="application/json,.json" onChange={event => { const file = event.target.files?.[0]; if (!file) return; void run('Reading backup', async () => { if (file.size > 100_000) throw new Error('This file is too large for a vault backup.'); setEncrypted(JSON.parse(await file.text())); setNotice('Enter the backup password, then unlock the vault.'); }); }} />
         <Text fontSize="sm">The website cannot recover a forgotten password. These wallets are for devnet testing; do not send real SOL to them.</Text>
       </VStack> : <VStack align="stretch" spacing={3}>
@@ -173,7 +189,10 @@ export default function SolanaStudio() {
       </VStack>}
     </Box>
 
-    <Box borderWidth="1px" rounded="lg" p={5}><Heading size="md" mb={3}>Token and trading pool</Heading>
+    </section>
+    <section className="np-view" hidden={view !== 'launch'} aria-label="Token launch workspace">
+    <div className="np-launch-grid">
+    <Box className="np-panel"><Heading size="md" mb={3}>Token and trading pool</Heading>
       <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
         <Field label="Token name" value={input.name} disabled={settingsLocked || !!busy} onChange={name => setInput({ ...input, name })} />
         <Field label="Token symbol" value={input.symbol} disabled={settingsLocked || !!busy} onChange={symbol => setInput({ ...input, symbol })} />
@@ -184,14 +203,18 @@ export default function SolanaStudio() {
       <Text mt={3}>The token uses Solana Token-2022 with 6 decimals, a fixed supply, and no freeze authority. Creating the Raydium devnet pool also uses test SOL for rent and its pool-creation fee.</Text>
       {tokenGate && <Alert mt={3} status="warning"><AlertIcon /><Text>{tokenGate}</Text></Alert>}
       <HStack mt={4} flexWrap="wrap">
-        <Button isDisabled={disabled || !!progress.tokenCreated} onClick={() => run('Creating token', async () => { if (!project) return; validateLaunch(input.name, input.symbol, input.supply, input.poolTokens, input.poolSol); remember({ ...progressRef.current, input }); const api = await chain(); await refresh(); const signature = await api.createToken(api.connection(), project, input, trackTransaction); remember({ ...progressRef.current, tokenCreated: true }); await refresh(); setNotice(`Token confirmed on devnet. Transaction: ${signature}`); })}>{progress.tokenCreated ? 'Token created' : 'Create token'}</Button>
+        <Button className="np-primary" isDisabled={disabled || !!progress.tokenCreated} onClick={() => run('Creating token', async () => { if (!project) return; validateLaunch(input.name, input.symbol, input.supply, input.poolTokens, input.poolSol); remember({ ...progressRef.current, input }); const api = await chain(); await refresh(); const signature = await api.createToken(api.connection(), project, input, trackTransaction); remember({ ...progressRef.current, tokenCreated: true }); await refresh(); setNotice(`Token confirmed on devnet. Transaction: ${signature}`); })}>{progress.tokenCreated ? 'Token created' : 'Create token'}</Button>
         <Button isDisabled={disabled || !progress.tokenCreated || !!progress.poolCreated} onClick={() => run('Creating trading pool', async () => { if (!project) return; const api = await chain(); const result = await api.createPool(api.connection(), project, progressRef.current.input, pool => remember({ ...progressRef.current, pool }), trackTransaction); remember({ ...progressRef.current, pool: result.pool, poolCreated: true }); await refresh(); setNotice('The devnet trading pool is confirmed.'); })}>{progress.poolCreated ? 'Pool created' : 'Create trading pool'}</Button>
       </HStack>
       {project && <Text mt={3}>Token mint: <Link href={explorer(project.mint.publicKey.toBase58())} isExternal>{short(project.mint.publicKey.toBase58())}</Link></Text>}
       {progress.pool && <Text mt={2}>Pool: <Link href={explorer(progress.pool)} isExternal>{short(progress.pool)}</Link></Text>}
     </Box>
 
-    <Box borderWidth="1px" rounded="lg" p={5}><Heading size="md" mb={3}>40-wallet buying batch</Heading>
+    <aside className="np-token-preview"><span className="np-token-avatar">{input.symbol.slice(0, 2) || 'NP'}</span><h3>{input.name || 'Your token name'}</h3><p className="np-token-symbol">${input.symbol || 'SYMBOL'} / SOLANA</p><dl><div><dt>Total supply</dt><dd>{input.supply || 'Not set'}</dd></div><div><dt>Decimals</dt><dd>6 decimals</dd></div><div><dt>Mint authority</dt><dd>{progress.tokenCreated ? 'Revoked' : 'Revoked at creation'}</dd></div><div><dt>Freeze authority</dt><dd>None</dd></div><div><dt>Pool allocation</dt><dd>{input.poolTokens} tokens / {input.poolSol} test SOL</dd></div></dl><small>Preview of your current settings. Account rent and network fees also apply.</small></aside>
+    </div><p className="np-safety-note">Test SOL only. Save your encrypted backup before you create a token. Transactions cannot be undone.</p>
+    </section>
+    <section className="np-view" hidden={view !== 'trading'} aria-label="Trading workspace">
+    <Box className="np-panel"><Heading size="md" mb={3}>40-wallet buying batch</Heading>
       <SimpleGrid columns={{ base: 1, md: 2 }} spacing={4}>
         <Field label="Test SOL per wallet" value={buyAmount} disabled={!!busy || !!progress.batch} onChange={value => { setBuyAmount(value); setPrepared(null); setReviewed(false); }} />
         <Field label="Maximum slippage (%)" value={slippage} disabled={!!busy || !!progress.batch} onChange={value => { setSlippage(value); setPrepared(null); setReviewed(false); }} />
@@ -201,13 +224,22 @@ export default function SolanaStudio() {
         <Button variant="outline" isDisabled={disabled || !progress.poolCreated || !!progress.batch} onClick={() => run('Funding buying wallets', async () => { if (!project) return; const api = await chain(); await api.fundWallets(api.connection(), project, buyAmount, trackTransaction); await refresh(); setNotice('All 40 wallets are funded for this test batch.'); })}>Fund 40 wallets</Button>
         <Button isDisabled={disabled || !progress.poolCreated || !!progress.batch} onClick={() => run('Preparing purchases', async () => { if (!project || !progress.pool) return; setDone(0); setReviewed(false); const api = await chain(); setPrepared(await api.prepareBatch(api.connection(), project, progress.pool, buyAmount, Math.round(Number(slippage) * 100), setDone)); })}>Prepare batch for review</Button>
       </HStack>
-      {prepared && !progress.batch && <VStack align="stretch" mt={4} spacing={3}><Alert status="info"><AlertIcon /><Text>40 purchases prepared. Each wallet&apos;s minimum is {(Number(prepared.minimumTokens) / 1e6).toLocaleString()} tokens, calculated conservatively for the whole batch. Review expires after 30 seconds; submission then refreshes the signing blockhash.</Text></Alert><Checkbox isChecked={reviewed} onChange={event => setReviewed(event.target.checked)}>I reviewed the total, per-wallet amount and minimum received. I understand individual purchases may fail.</Checkbox><Button colorScheme="purple" isDisabled={!reviewed || disabled} onClick={() => run('Submitting 40 purchases', async () => { const api = await chain(); await api.submitBatch(api.connection(), prepared, batch => remember({ ...progressRef.current, batch }), updateRow); const record = progressRef.current.batch!; const rows = await api.checkBatch(api.connection(), record); remember({ ...progressRef.current, batch: { ...record, rows } }); setPrepared(null); setNotice('The batch was submitted. Refresh transaction status until results are confirmed.'); })}>Submit 40-wallet test batch</Button></VStack>}
+      {prepared && !progress.batch && <VStack align="stretch" mt={4} spacing={3}><Alert status="info"><AlertIcon /><Text>40 purchases prepared. Each wallet&apos;s minimum is {(Number(prepared.minimumTokens) / 1e6).toLocaleString()} tokens, calculated conservatively for the whole batch. Review expires after 30 seconds; submission then refreshes the signing blockhash.</Text></Alert><Checkbox isChecked={reviewed} onChange={event => setReviewed(event.target.checked)}>I reviewed the total, per-wallet amount and minimum received. I understand individual purchases may fail.</Checkbox><Button className="np-primary" colorScheme="purple" isDisabled={!reviewed || disabled} onClick={() => run('Submitting 40 purchases', async () => { const api = await chain(); await api.submitBatch(api.connection(), prepared, batch => remember({ ...progressRef.current, batch }), updateRow); const record = progressRef.current.batch!; const rows = await api.checkBatch(api.connection(), record); remember({ ...progressRef.current, batch: { ...record, rows } }); setPrepared(null); setNotice('The batch was submitted. Refresh transaction status until results are confirmed.'); })}>Submit 40-wallet test batch</Button></VStack>}
       {progress.batch && <VStack align="stretch" mt={4} spacing={3}><Text>{confirmed} of 40 purchases confirmed. Each row is checked against the blockchain; submission is not a confirmation.</Text><Button variant="outline" isDisabled={!!busy} onClick={() => run('Checking batch results', async () => { const api = await chain(); const record = progressRef.current.batch!; remember({ ...progressRef.current, batch: { ...record, rows: await api.checkBatch(api.connection(), record) } }); await refresh(); })}>Refresh transaction status</Button><Text fontSize="sm">This test project submits one buying batch. It never automatically creates replacement purchases after an uncertain or failed result.</Text></VStack>}
     </Box>
 
     <WalletTrading key={(project?.mint.publicKey.toBase58() || 'locked') + ':' + (progress.pool || '')} project={project} pool={progress.poolCreated ? progress.pool : undefined} disabled={disabled} busy={!!busy} holdings={holdings} blockedWallets={(batchRows || []).filter(row => row.status !== 'confirmed' && row.status !== 'failed').map(row => row.address)} sales={progress.sales || []} run={run} track={trackTransaction} record={recordSale} refresh={refresh} />
-    {project && <Box overflowX="auto"><Heading size="md" mb={3}>Buying wallets</Heading><Table size="sm"><Thead><Tr><Th>Wallet</Th><Th>Address</Th><Th>Test SOL</Th><Th>Project tokens</Th><Th>Purchase status</Th></Tr></Thead><Tbody>{project.wallets.map((wallet, i) => { const address = wallet.publicKey.toBase58(); const row = batchRows?.find(item => item.address === address); const holding = holdings.find(item => item.address === address); return <Tr key={address}><Td>{i + 1}</Td><Td><Link href={explorer(address)} isExternal>{short(address)}</Link></Td><Td>{solBalances.length ? (solBalances[i + 1] / 1e9).toFixed(6) : 'Not checked'}</Td><Td>{holding ? formatUnits(holding.rawAmount, 6) : 'Not checked'}{holding?.frozen ? ' (frozen)' : ''}</Td><Td>{row?.signature ? <Link href={explorer(row.signature, 'tx')} isExternal>{row.status}</Link> : row?.status || 'Not submitted'}{row?.message && <Text fontSize="sm" mt={1}>{row.message}</Text>}</Td></Tr>; })}</Tbody></Table></Box>}
-    <Box as="details"><Box as="summary" cursor="pointer">Optional practice simulator (no transactions)</Box><Box mt={4}><PracticeSimulation /></Box></Box>
-    <Text fontSize="sm">Public launch progress and transaction signatures are saved in this browser. The encrypted backup restores keys; keep the public mint and pool addresses too when moving to another device. This version is for devnet testing and has no mainnet switch.</Text>
-  </VStack>;
+    </section>
+    <section className="np-view" hidden={view !== 'wallets'} aria-label="Wallet balances">
+    {project && <Box className="np-panel" overflowX="auto"><Heading size="md" mb={3}>Buying wallets</Heading><Table size="sm"><Thead><Tr><Th>Wallet</Th><Th>Address</Th><Th>Test SOL</Th><Th>Project tokens</Th><Th>Purchase status</Th></Tr></Thead><Tbody>{project.wallets.map((wallet, i) => { const address = wallet.publicKey.toBase58(); const row = batchRows?.find(item => item.address === address); const holding = holdings.find(item => item.address === address); return <Tr key={address}><Td>{i + 1}</Td><Td><Link href={explorer(address)} isExternal>{short(address)}</Link></Td><Td>{solBalances.length ? (solBalances[i + 1] / 1e9).toFixed(6) : 'Not checked'}</Td><Td>{holding ? formatUnits(holding.rawAmount, 6) : 'Not checked'}{holding?.frozen ? ' (frozen)' : ''}</Td><Td>{row?.signature ? <Link href={explorer(row.signature, 'tx')} isExternal>{row.status}</Link> : row?.status || 'Not submitted'}{row?.message && <Text fontSize="sm" mt={1}>{row.message}</Text>}</Td></Tr>; })}</Tbody></Table></Box>}
+    {!project && <div className="np-panel np-empty"><StudioIcon name="wallets"/><h3>Your wallet group will appear here</h3><p>Create or restore your vault above to view your 40 buying wallets and balances.</p></div>}
+    </section>
+    <section className="np-view" hidden={view !== 'activity'} aria-label="Transaction activity">
+      <Box className="np-panel"><Heading size="md" mb={3}>Recorded buys and sales</Heading><Text fontSize="sm" color="gray.400" mb={5}>Your saved project signatures. Only confirmed results mean a completed trade.</Text>
+      {!(batchRows?.length || progress.sales?.length) ? <div className="np-empty"><StudioIcon name="activity"/><h3>No transactions recorded yet</h3><p>Once you submit a devnet trade, its signature and status will appear here.</p><button className="np-action" onClick={() => navigate('trading')}>Open trading <StudioIcon name="arrow"/></button></div> : <Box overflowX="auto"><Table><Thead><Tr><Th>Action</Th><Th>Wallet</Th><Th>Signature</Th><Th>Status</Th></Tr></Thead><Tbody>{[...(batchRows || []).map(row => ({ ...row, kind: 'Buy' })), ...(progress.sales || []).map(sale => ({ address: sale.sale?.walletAddress || '', signature: sale.signature, status: sale.status, kind: 'Sell' }))].map((row, i) => <Tr key={row.signature || i}><Td>{row.kind}</Td><Td>{short(row.address)}</Td><Td>{row.signature ? <Link href={explorer(row.signature, 'tx')} isExternal>{short(row.signature)}</Link> : 'Not submitted'}</Td><Td><span className="np-status-badge" data-status={row.status}>{row.status}</span></Td></Tr>)}</Tbody></Table></Box>}
+      </Box>
+    </section>
+    <section className="np-view" hidden={view !== 'practice'} aria-label="Practice workspace"><PracticeSimulation active={view === 'practice'} /></section>
+    <p className="np-network-note" role="status"><StudioIcon name="shield"/>{network}</p>
+  </StudioChrome>;
 }

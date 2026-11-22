@@ -49,7 +49,7 @@ test('missing configuration does not construct Supabase', () => {
 test('Solana studio displays the forty-wallet flow and safe initial action gates', () => {
  const Component = load('src/components/SolanaStudio.tsx', {}, {TextEncoder, TextDecoder}).default;
  const html = render(Component);
- assert.match(html, /Solana Launch Studio/); assert.match(html, /Create 40 wallets/);
+ assert.match(html, /Solana Launch Studio/i); assert.match(html, /Create 40 wallets/);
  assert.match(html, /DEVNET/); assert.match(html, /Create trading pool/); assert.match(html, /Prepare batch for review/);
  assert.match(html, /Unlock or create your wallets first/);
  assert.match(html, /SIMULATION - NO TRANSACTIONS/);
