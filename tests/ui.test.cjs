@@ -45,3 +45,10 @@ test('missing configuration does not construct Supabase', () => {
   const Component = load('src/components/Auth.tsx', { '@/lib/config': { hasAuth: false }, '@supabase/auth-helpers-nextjs': { createBrowserSupabaseClient() { throw new Error('Must not construct'); } } }).default;
   assert.match(render(Component, { children: React.createElement('div', null, 'Dashboard available') }), /Dashboard available/);
 });
+
+test('Solana studio displays the forty-wallet flow and safe initial action gates', () => {
+ const Component = load('src/components/SolanaStudio.tsx', {}, {TextEncoder, TextDecoder}).default;
+ const html = render(Component);
+ assert.match(html, /Solana Launch Studio/); assert.match(html, /Create 40 wallets/);
+ assert.match(html, /DEVNET/); assert.match(html, /Create trading pool/); assert.match(html, /Prepare batch for review/);
+});

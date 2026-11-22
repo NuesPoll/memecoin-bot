@@ -80,3 +80,9 @@ test('network guard pins the full genesis hash rather than a truncated CAIP iden
  assert.equal(plan.DEVNET_GENESIS.length, 44);
 });
 
+
+test('hosted health status reports only a verified devnet connection', async () => {
+ const handler = load('src/pages/api/solana/status.ts', {}, {fetch: async () => ({ok: true, json: async () => ({result: 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG'})})}).default;
+ const res = response(); await handler({method: 'GET'}, res);
+ assert.equal(res.code, 200); assert.equal(res.body.mainnetEnabled, false); assert.equal(res.body.rpcFaucetAvailable, false);
+});

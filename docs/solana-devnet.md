@@ -6,7 +6,7 @@ This feature is a hosted devnet implementation. It does not enable mainnet tradi
 
 1. Choose a password of at least 12 characters and create the vault. The browser generates 40 buying keypairs, one launch keypair and one token mint keypair. No server generates, receives or stores those private keys.
 2. Download the AES-GCM encrypted backup and retain its password separately. PBKDF2-SHA256 uses a random salt and 600,000 iterations. Only ciphertext is saved in browser storage. Unlocking decrypts in browser memory. There is no password reset.
-3. Request devnet SOL for the launch wallet or use the Solana devnet faucet. The public faucet can be rate limited. Do not send mainnet assets to these test addresses.
+3. Open the Solana web faucet, paste the launch wallet public address, request test SOL, then refresh balances. The RPC faucet returned HTTP 410 (closed) during verification, so the app uses the web faucet. It may require sign-in or a challenge. Do not send mainnet assets to these test addresses.
 4. Create the Token-2022 token with on-mint name/symbol metadata, 6 decimals, fixed minted supply and no freeze authority. Mint authority is revoked in the creation transaction. The metadata update authority stays with the launch wallet. The off-chain metadata URI uses this hosted app.
 5. Seed its Raydium devnet CPMM token/WSOL pool. The launch wallet pays pool fees and rent in addition to initial liquidity. LP tokens remain in the launch wallet; they are not automatically burned or locked.
 6. Fund all 40 buying wallets. Each is topped up to its purchase cap plus a 0.01 test SOL account-rent/fee reserve. The batch spend is capped at 1 test SOL in this version.
@@ -31,3 +31,7 @@ Primary implementation references:
 - https://solana.com/docs/tokens/extensions/metadata
 - https://github.com/raydium-io/raydium-sdk-V2-demo/blob/master/src/cpmm/createCpmmPool.ts
 - https://github.com/raydium-io/raydium-sdk-V2-demo/blob/master/src/cpmm/swap.ts
+
+## Current verification status
+
+The Node 22 build passed 50 automated tests, type checks, lint and the optimized production build. Vercel published the devnet preview. A live check verified the full devnet genesis hash and reached the faucet, which returned HTTP 410 and required the web faucet. The live token, pool, funding and 40-purchase run was therefore not completed. Browser inspection reached Vercel sign-in rather than the application; hosted UI interactions are not claimed verified. Mainnet remains disabled.

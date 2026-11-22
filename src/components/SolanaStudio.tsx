@@ -31,10 +31,17 @@ export default function SolanaStudio() {
   const [reviewed, setReviewed] = useState(false);
   const [done, setDone] = useState(0);
   const [recoveryPool, setRecoveryPool] = useState('');
+  const [network, setNetwork] = useState('Checking devnet connection…');
   const projectRef = useRef<TestProject | null>(null);
   const progressRef = useRef<Progress>({ input: initialInput });
   const fileInput = useRef<HTMLInputElement | null>(null);
   const running = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    fetch('/api/solana/status').then(async response => { const status = await response.json(); if (active) setNetwork(response.ok && status.verified ? 'Solana devnet connection verified. Mainnet is disabled.' : 'Devnet connection unavailable. Funding and on-chain actions may fail until it recovers.'); }).catch(() => { if (active) setNetwork('Could not check devnet. Please try again later.'); });
+    return () => { active = false; };
+  }, []);
 
   useEffect(() => {
     try { const saved = localStorage.getItem(STORAGE); if (saved) setEncrypted(JSON.parse(saved)); }
@@ -109,6 +116,7 @@ export default function SolanaStudio() {
     <HStack justify="space-between" flexWrap="wrap"><Heading size="xl">Solana Launch Studio</Heading><Badge colorScheme="purple" px={3} py={1}>DEVNET Â· TEST SOL ONLY</Badge></HStack>
     <Text>Create a standard Solana token, seed its trading pool, and submit purchases from 40 new wallets in one coordinated batch.</Text>
     <Alert status="info"><AlertIcon /><Text>This online test version cannot access mainnet. Forty purchases use separate transactions; the same block and all-or-nothing execution are not guaranteed.</Text></Alert>
+    <Text fontSize="sm" role="status">{network}</Text>
     {error && <Alert status="error"><AlertIcon /><Text overflowWrap="anywhere">{error}</Text></Alert>}
     {notice && <Alert status="success"><AlertIcon /><Text>{notice}</Text></Alert>}
     {busy && <Alert status="info" role="status"><AlertIcon />{busy}{busy === 'Preparing purchases' ? ` (${done}/40)` : ''}â€¦</Alert>}
@@ -127,7 +135,8 @@ export default function SolanaStudio() {
         {!backupSaved && <Text>Download the encrypted backup to unlock the next steps.</Text>}
         <Field label="Pool address for recovery (optional)" value={recoveryPool} disabled={!!busy} onChange={setRecoveryPool} />
         <Button variant="outline" isDisabled={!!busy} onClick={() => run('Checking existing token and pool', async () => { const api = await chain(); const pool = recoveryPool.trim() || progressRef.current.pool; const found = await api.inspectProject(api.connection(), project, pool); const recoveredInput = { ...progressRef.current.input, name: found.name || progressRef.current.input.name, symbol: found.symbol || progressRef.current.input.symbol }; setInput(recoveredInput); remember({ ...progressRef.current, ...found, input: recoveredInput, pool }); await refresh(); setNotice(found.tokenCreated ? 'The existing token and pool progress were checked against devnet.' : 'No token exists for this project yet.'); })}>Check on-chain progress</Button>
-        <HStack flexWrap="wrap"><Button variant="outline" isDisabled={disabled} onClick={() => run('Requesting test SOL', async () => { const api = await chain(); const signature = await api.requestTestSol(api.connection(), project); await refresh(); setNotice(`Test SOL received. Transaction: ${signature}`); })}>Request 2 test SOL</Button><Link href="https://faucet.solana.com/" isExternal>Open Solana devnet faucet</Link></HStack>
+        <Text>Get free test SOL from Solana&apos;s web faucet using the launch wallet address above, then refresh balances here. Its RPC faucet is closed; the web faucet may require sign-in or a challenge.</Text>
+        <Link href="https://faucet.solana.com/" isExternal>Open Solana devnet faucet</Link>
       </VStack>}
     </Box>
 

@@ -1,7 +1,7 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { DEVNET_GENESIS } from '@/lib/solana/plan';
 
-const methods = new Set(['getGenesisHash', 'getVersion', 'getAccountInfo', 'getMultipleAccounts', 'getBalance', 'getTokenAccountsByOwner', 'getTokenAccountBalance', 'getTokenSupply', 'getLatestBlockhash', 'getBlockHeight', 'getEpochInfo', 'getMinimumBalanceForRentExemption', 'getFeeForMessage', 'getSignatureStatuses', 'simulateTransaction', 'sendTransaction', 'requestAirdrop', 'getProgramAccounts', 'getRecentPrioritizationFees']);
+const methods = new Set(['getGenesisHash', 'getVersion', 'getAccountInfo', 'getMultipleAccounts', 'getBalance', 'getTokenAccountsByOwner', 'getTokenAccountBalance', 'getTokenSupply', 'getLatestBlockhash', 'getBlockHeight', 'getEpochInfo', 'getMinimumBalanceForRentExemption', 'getFeeForMessage', 'getSignatureStatuses', 'simulateTransaction', 'sendTransaction', 'getProgramAccounts', 'getRecentPrioritizationFees']);
 let verifiedEndpoint: string | undefined;
 let verifiedAt = 0;
 
