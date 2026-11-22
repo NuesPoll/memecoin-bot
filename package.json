@@ -27,7 +27,14 @@
     "next": "13.3.4",
     "react": "18.2.0",
     "react-dom": "18.2.0",
-    "typescript": "5.0.4"
+    "typescript": "5.9.3",
+    "@raydium-io/raydium-sdk-v2": "0.2.85-alpha",
+    "@solana/web3.js": "1.98.4",
+    "@solana/spl-token": "0.4.14",
+    "@solana/spl-token-metadata": "0.1.6",
+    "bn.js": "5.2.2",
+    "@types/bn.js": "5.2.0",
+    "bs58": "6.0.0"
   },
   "engines": {
     "node": "22.x"

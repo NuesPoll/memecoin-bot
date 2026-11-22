@@ -1,7 +1,7 @@
 name: NovaPulse validation
 on:
   push:
-    branches: [main, fix/novapulse-dashboard]
+    branches: [main, fix/novapulse-dashboard, feat/solana-launch-batch]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -17,8 +17,14 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-      - run: npm ci --legacy-peer-deps
+      - run: npm install --legacy-peer-deps --ignore-scripts
       - run: npm test
       - run: npm run typecheck
       - run: npm run lint
       - run: npm run build
+      - name: Save reproducible dependency lockfile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: solana-lockfile
+          path: package-lock.json
