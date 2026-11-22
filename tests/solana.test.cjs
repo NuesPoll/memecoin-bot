@@ -64,7 +64,7 @@ test('RPC rejects a mainnet endpoint even when configured by mistake', async () 
 });
 test('RPC verifies devnet then forwards only the approved request shape', async () => {
   const calls = [];
-  const handler = rpc(async (_url, opts) => { const body = JSON.parse(opts.body); calls.push(body); return {ok: true, json: async () => ({jsonrpc: '2.0', id: body.id, result: body.method === 'getGenesisHash' ? plan.DEVNET_GENESIS : 42})}; });
+  const handler = rpc(async (_url, opts) => { const body = JSON.parse(opts.body); calls.push(body); return {ok: true, json: async () => ({jsonrpc: '2.0', id: body.id, result: body.method === 'getGenesisHash' ? 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG' : 42})}; });
   const res = response(); const req = post('getBalance', ['public-wallet']); req.body.endpoint = 'https://attacker.example';
   await handler(req, res); assert.equal(res.code, 200); assert.equal(res.body.result, 42); assert.equal(calls.length, 2); assert.equal(calls[1].endpoint, undefined);
 });
@@ -74,3 +74,9 @@ test('RPC caps faucet amounts and requires preflight', async () => {
     const res = response(); await handler(req, res); assert.equal(res.code, 400);
   }
 });
+
+test('network guard pins the full genesis hash rather than a truncated CAIP identifier', () => {
+ assert.equal(plan.DEVNET_GENESIS, 'EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG');
+ assert.equal(plan.DEVNET_GENESIS.length, 44);
+});
+
