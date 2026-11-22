@@ -23,7 +23,8 @@ export default function WalletTrading({ project, pool, disabled, busy, holdings,
   const address = selected?.publicKey.toBase58();
   const holding = holdings.find(row => row.address === address);
   const unresolvedBuy = !!address && blockedWallets.includes(address);
-  const unavailable = disabled || !project || !pool || unresolvedBuy;
+  const unresolvedSale = sales.some(sale => sale.status === 'unknown' && sale.sale?.walletAddress === address);
+  const unavailable = disabled || !project || !pool || unresolvedBuy || unresolvedSale;
   function invalidate() { setReview(null); setAccepted(false); setMessage(''); }
 
   async function preview() {
@@ -69,6 +70,7 @@ export default function WalletTrading({ project, pool, disabled, busy, holdings,
       <Text mt={3} overflowWrap="anywhere">Selected wallet: {address}</Text>
       <Text mt={2}>Project tokens: {holding ? formatUnits(holding.rawAmount, 6) : 'Refresh balances to check'}{holding?.frozen ? ' (frozen)' : ''}</Text>
       {unresolvedBuy && <Alert mt={3} status="warning"><AlertIcon />Check this wallet&apos;s buying-batch status before preparing a sale.</Alert>}
+      {unresolvedSale && <Alert mt={3} status="warning"><AlertIcon />This wallet has an unresolved sale. Refresh sale history before preparing another.</Alert>}
       <HStack mt={4} flexWrap="wrap"><Button isDisabled={unavailable} onClick={() => run('Preparing sale review', preview)}>Preview sale</Button><Button variant="outline" isDisabled={busy} onClick={() => run('Refreshing wallet holdings', refresh)}>Refresh holdings</Button></HStack>
       {review && <VStack align="stretch" mt={4} spacing={3}>
         <Alert status="info"><AlertIcon /><Text>Wallet {review.walletIndex + 1}: sell exactly {formatUnits(review.tokenAmountRaw, 6)} project tokens ({review.percent}% at preview time). Estimated output: {formatUnits(review.expectedSolRaw, 9)} test SOL; minimum: {formatUnits(review.minimumSolRaw, 9)} test SOL before network fees. Slippage limit: {review.slippageBps / 100}%. This quote expires 30 seconds after preparation starts.</Text></Alert>
@@ -77,6 +79,6 @@ export default function WalletTrading({ project, pool, disabled, busy, holdings,
       </VStack>}
     </>}
     {message && <Alert mt={3} status="success"><AlertIcon /><Text overflowWrap="anywhere">{message}</Text></Alert>}
-    {sales.length > 0 && <Box mt={4} overflowX="auto"><Heading size="sm" mb={3}>Sale history</Heading><Table size="sm"><Thead><Tr><Th>Wallet</Th><Th>Token amount</Th><Th>Minimum test SOL</Th><Th>Transaction status</Th></Tr></Thead><Tbody>{sales.slice().reverse().map(sale => <Tr key={sale.signature}><Td overflowWrap="anywhere">{sale.sale?.walletAddress}</Td><Td>{sale.sale ? formatUnits(sale.sale.tokenAmountRaw, 6) : '-'}</Td><Td>{sale.sale ? formatUnits(sale.sale.minimumSolRaw, 9) : '-'}</Td><Td><Link href={explorer(sale.signature)} isExternal>{sale.status}</Link></Td></Tr>)}</Tbody></Table><Text fontSize="sm" mt={3}>Unknown results require the transaction-status check above. No sale is automatically repeated. Only confirmed rows indicate completed sales; failed transactions may still use network fees.</Text></Box>}
+    {sales.length > 0 && <Box mt={4} overflowX="auto"><Heading size="sm" mb={3}>Sale history</Heading><Button mb={3} variant="outline" isDisabled={busy || !project} onClick={() => run('Checking recorded sales', async () => { const api = await import('@/lib/solana/chain'); const checked = await api.checkSaleHistory(api.connection(), sales); checked.forEach(record); setMessage('Recorded sale signatures checked against devnet. Unknown results remain paused.'); })}>Refresh sale history</Button><Table size="sm"><Thead><Tr><Th>Wallet</Th><Th>Token amount</Th><Th>Minimum test SOL</Th><Th>Transaction status</Th></Tr></Thead><Tbody>{sales.slice().reverse().map(sale => <Tr key={sale.signature}><Td overflowWrap="anywhere">{sale.sale?.walletAddress}</Td><Td>{sale.sale ? formatUnits(sale.sale.tokenAmountRaw, 6) : '-'}</Td><Td>{sale.sale ? formatUnits(sale.sale.minimumSolRaw, 9) : '-'}</Td><Td><Link href={explorer(sale.signature)} isExternal>{sale.status}</Link></Td></Tr>)}</Tbody></Table><Text fontSize="sm" mt={3}>Refresh sale history to recheck imported or unknown results. No sale is automatically repeated. Only confirmed rows indicate completed sales; failed transactions may still use network fees.</Text></Box>}
   </Box>;
 }

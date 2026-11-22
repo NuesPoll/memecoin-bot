@@ -95,6 +95,15 @@ export async function checkTransaction(rpc: Connection, attempt: TransactionAtte
   return 'unknown' as const;
 }
 
+export async function checkSaleHistory(rpc: Connection, sales: SaleRecord[]): Promise<SaleRecord[]> {
+  await assertDevnet(rpc);
+  if (!sales.length) return [];
+  if (sales.length > 100) throw new Error('Check at most 100 sale records at a time.');
+  const statuses = (await rpc.getSignatureStatuses(sales.map(sale => sale.signature), { searchTransactionHistory: true })).value;
+  if (statuses.length !== sales.length) throw new Error('The transaction history response was incomplete. Check again; no transaction was submitted.');
+  return sales.map((sale, i) => ({ ...sale, status: statuses[i]?.err ? 'failed' : statuses[i]?.confirmationStatus === 'confirmed' || statuses[i]?.confirmationStatus === 'finalized' ? 'confirmed' : 'unknown' }));
+}
+
 export async function balances(rpc: Connection, project: TestProject) {
   await assertDevnet(rpc);
   const rows = await rpc.getMultipleAccountsInfo([project.treasury.publicKey, ...project.wallets.map(wallet => wallet.publicKey)]);
@@ -309,6 +318,7 @@ export async function submitBatch(rpc: Connection, batch: PreparedBatch, remembe
 export async function checkBatch(rpc: Connection, record: BatchRecord) {
   await assertDevnet(rpc);
   const statuses = (await rpc.getSignatureStatuses(record.rows.map(row => row.signature!), { searchTransactionHistory: true })).value;
+  if (statuses.length !== record.rows.length) throw new Error('The buying-batch response was incomplete. Check again; no purchase was repeated.');
   const height = await rpc.getBlockHeight('confirmed');
   return record.rows.map((row, i): WalletResult => {
     const state = statuses[i];

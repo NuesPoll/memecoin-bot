@@ -99,3 +99,13 @@ test('mainnet genesis is rejected before mint creation or faucet use', async () 
  await assert.rejects(chain.createToken(rpc, project, {name:'Test',symbol:'T',supply:'100',poolTokens:'10',poolSol:'0.1'}), /Devnet verification/);
  await assert.rejects(chain.requestTestSol(rpc, project), /Devnet verification/);
 });
+
+test('sale history refresh distinguishes real confirmations and leaves absent or processed signatures unknown',async()=>{
+ const sales=['confirmed','confirmed','confirmed','unknown'].map((status,i)=>({signature:'signature-'+i,action:'sell',lastValidBlockHeight:100,status}));
+ let requests=0;
+ const rpc=creationRpc({getSignatureStatuses:async(signatures,options)=>{requests++;assert.equal(signatures.length,4);assert.equal(options.searchTransactionHistory,true);return {value:[{err:null,confirmationStatus:'finalized'},{err:{InstructionError:[0,'Custom']},confirmationStatus:'confirmed'},null,{err:null,confirmationStatus:'processed'}]};}});
+ assert.equal((await chain.checkSaleHistory(rpc,sales)).map(row=>row.status).join(','),'confirmed,failed,unknown,unknown');assert.equal(requests,1);
+ await assert.rejects(chain.checkSaleHistory(creationRpc({getSignatureStatuses:async()=>({value:[]})}),sales),/incomplete/);
+ await assert.rejects(chain.checkSaleHistory(creationRpc({getGenesisHash:async()=> 'mainnet'}),sales),/Devnet verification/);
+ assert.equal(requests,1);
+});

@@ -104,3 +104,21 @@ test('token creation is gated by backup confirmation, not the funded-wallet bala
   if(!backedUp) assert.match(html,/Create token is paused until you save your encrypted backup/);
  }
 });
+
+test('restored projects and missing legacy trade history visibly pause the relevant actions',()=>{
+ for(const [extra,buttonText,reason] of [[{recoveryRequired:true},'Create token',/Restore checkpoint/],[{historyMissing:true,poolCreated:true},'Prepare batch for review',/complete trading history is needed/]]) {
+  let index=0;const key={toBase58:()=> 'PublicTestAddress'};
+  const mockReact={...React,useState:initial=>{const current=index++;return [current===0?{treasury:{publicKey:key},mint:{publicKey:key},wallets:[]}:current===6?true:current===8?{input:{name:'Test',symbol:'T',supply:'100',poolTokens:'10',poolSol:'0.1'},...extra}:initial,()=>{}];}};
+  const Component=load('src/components/SolanaStudio.tsx',{'react':mockReact},{TextEncoder,TextDecoder}).default;
+  const html=renderToStaticMarkup(React.createElement(ChakraProvider,null,React.createElement(Component)));
+  const button=html.match(new RegExp('<button\\b[^>]*>'+buttonText+'<\\/button>'))?.[0];
+  assert.ok(button);assert.ok(button.includes('disabled='));assert.match(html,reason);
+ }
+});
+
+test('an unresolved imported sale blocks a new sale for that wallet and exposes history refresh',()=>{
+ const Component=load('src/components/WalletTrading.tsx').default;const key={toBase58:()=> 'public-wallet'};
+ const html=renderToStaticMarkup(React.createElement(ChakraProvider,null,React.createElement(Component,{project:{wallets:[{publicKey:key}]},pool:'pool',disabled:false,busy:false,holdings:[],blockedWallets:[],sales:[{signature:'signature',action:'sell',status:'unknown',lastValidBlockHeight:100,sale:{walletAddress:'public-wallet',tokenAmountRaw:'100',minimumSolRaw:'1'}}],run:async()=>{},track:()=>{},record:()=>{},refresh:async()=>{}})));
+ assert.ok(html.match(/<button\b[^>]*>Preview sale<\/button>/)[0].includes('disabled='));
+ assert.match(html,/Refresh sale history/);assert.match(html,/wallet has an unresolved sale/);
+});
