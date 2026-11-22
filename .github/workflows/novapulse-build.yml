@@ -1,14 +1,12 @@
-name: NovaPulse build validation
-
+name: NovaPulse validation
 on:
   push:
-    branches:
-      - fix/novapulse-sentry-build
+    branches: [main, fix/novapulse-dashboard]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
-
+permissions:
+  contents: read
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,7 +16,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install dependencies
-        run: yarn install --non-interactive
-      - name: Build Next.js
-        run: yarn build
+          cache: npm
+      - run: npm ci --legacy-peer-deps
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build

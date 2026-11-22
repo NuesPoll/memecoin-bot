@@ -1,78 +1,16 @@
+import { Alert, AlertIcon, Tab, TabList, TabPanel, TabPanels, Tabs, Text } from '@chakra-ui/react';
+import Head from 'next/head';
 import Buying from '@/components/Buying/Buying';
 import Wallet from '@/components/Wallet/Wallet';
-import {
-  Center,
-  Heading,
-  Tab,
-  TabList,
-  TabPanel,
-  TabPanels,
-  Tabs,
-  VStack
-} from '@chakra-ui/react';
-import { useUser } from "@supabase/auth-helpers-react";
-import Head from 'next/head';
-import Layout from '../components/Layout/Layout';
 import Portfolio from '@/components/Portfolio/Portfolio';
 import Transactions from '@/components/Transactions/Transactions';
-
-
+import Layout from '@/components/Layout/Layout';
+import ErrorBoundary from '@/components/ErrorBoundary';
 export default function Home() {
-  const user = useUser()
-
-  return (
-    <>
-      <Head>
-        <title>Shitcoin Bot</title>
-        <meta name="description" content="Degen into shitcoins fast" />
-        <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <link rel="icon" href="/favicon.ico" />
-      </Head>
-      <Layout>
-
-        <Tabs w="60rem" pt="3rem">
-          <TabList>
-            <Tab>Memecoin Bot</Tab>
-            <Tab>Wallet Manager</Tab>
-            <Tab>Portfolio</Tab>
-            <Tab>Transactions</Tab>
-            {/* <Tab>Leaderboard</Tab>
-            <Tab>Global Chat</Tab> */}
-          </TabList>
-          <TabPanels>
-            <TabPanel>
-              {user ? <Buying /> : <VStack pt="4rem"><Heading>Need to Login</Heading></VStack>}
-            </TabPanel>
-            <TabPanel>
-              {user ? <Wallet /> : <VStack pt="4rem"><Heading>Need to Login</Heading></VStack>}
-            </TabPanel>
-            <TabPanel>
-              <VStack pt="4rem">
-                <Portfolio />
-              </VStack>
-            </TabPanel>
-            <TabPanel>
-              <Transactions />
-            </TabPanel>
-            {/* <TabPanel>
-              <VStack>
-                <Center pt="5rem">
-                  <Heading>Coming soon!</Heading>
-                </Center>
-              </VStack>
-            </TabPanel>
-            <TabPanel>
-              <VStack>
-                <Center pt="5rem">
-                  <Heading>Coming soon!</Heading>
-                </Center>
-              </VStack>
-            </TabPanel> */}
-          </TabPanels>
-        </Tabs>
-
-
-      </Layout >
-    </>
-  )
+  return <><Head><title>NovaPulse</title><meta name="description" content="NovaPulse read-only memecoin dashboard" /><meta name="viewport" content="width=device-width, initial-scale=1" /></Head><Layout>
+    <Alert status="info" mt={4}><AlertIcon /><Text>Read-only mode. Trading, wallet creation, key display, transfers and cancellations are disabled.</Text></Alert>
+    <Tabs isLazy pt={6} w="full"><TabList overflowX="auto">{['Memecoin Bot', 'Wallet Manager', 'Portfolio', 'Transactions'].map(label => <Tab key={label} flexShrink={0}>{label}</Tab>)}</TabList><TabPanels>
+      {[<Buying key="bot" />, <Wallet key="wallet" />, <Portfolio key="portfolio" />, <Transactions key="transactions" />].map((panel, index) => <TabPanel px={{ base: 0, md: 4 }} py={8} key={index}><ErrorBoundary>{panel}</ErrorBoundary></TabPanel>)}
+    </TabPanels></Tabs>
+  </Layout></>;
 }

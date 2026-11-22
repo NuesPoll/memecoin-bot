@@ -1,20 +1,6 @@
-import { VStack } from "@chakra-ui/react";
-import dynamic from "next/dynamic";
-import React from "react";
-
-const NavBar = dynamic(() => import("../NavBar/NavBar"), { ssr: false });
-
-interface LayoutProps {
-    children: any;
+import { Box } from '@chakra-ui/react';
+import type { ReactNode } from 'react';
+import NavBar from '../NavBar/NavBar';
+export default function Layout({ children }: { children: ReactNode }) {
+  return <Box minH="100vh" bg="gray.900" color="gray.100"><Box maxW="64rem" mx="auto" px={{ base: 3, md: 6 }}><NavBar />{children}</Box></Box>;
 }
-
-const Layout: React.FC<LayoutProps> = ({ children }) => {
-    return (
-        <VStack minH="100vh" bgColor="black" w="100%">
-            <NavBar />
-            {children}
-        </VStack>
-    );
-};
-
-export default Layout;
