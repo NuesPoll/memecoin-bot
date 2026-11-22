@@ -28,3 +28,6 @@ jobs:
         with:
           name: solana-lockfile
           path: package-lock.json
+      - name: Export generated lockfile for source synchronization
+        if: always()
+        run: node -e "const z=require('node:zlib'),f=require('node:fs');const s=z.gzipSync(f.readFileSync('package-lock.json')).toString('base64');for(let i=0;i<s.length;i+=6000)console.log('NOVAPULSE_LOCK_CHUNK:'+s.slice(i,i+6000));"

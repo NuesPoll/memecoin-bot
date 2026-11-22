@@ -8,7 +8,7 @@ const STORAGE = 'novapulse.devnet.encrypted-vault.v1';
 type Progress = { input: LaunchInput; tokenCreated?: boolean; pool?: string; poolCreated?: boolean; batch?: BatchRecord };
 const initialInput: LaunchInput = { name: 'NovaPulse Test', symbol: 'NOVA', supply: '1000000', poolTokens: '100000', poolSol: '0.1' };
 const chain = () => import('@/lib/solana/chain');
-const short = (value: string) => `${value.slice(0, 6)}…${value.slice(-6)}`;
+const short = (value: string) => `${value.slice(0, 6)}â€¦${value.slice(-6)}`;
 const explorer = (value: string, type = 'address') => `https://explorer.solana.com/${type}/${encodeURIComponent(value)}?cluster=devnet`;
 function Field({ label, value, onChange, disabled = false }: { label: string; value: string; onChange: (value: string) => void; disabled?: boolean }) {
   return <FormControl><FormLabel>{label}</FormLabel><Input aria-label={label} value={value} onChange={event => onChange(event.target.value)} isDisabled={disabled} /></FormControl>;
@@ -33,6 +33,7 @@ export default function SolanaStudio() {
   const projectRef = useRef<TestProject | null>(null);
   const progressRef = useRef<Progress>({ input: initialInput });
   const fileInput = useRef<HTMLInputElement | null>(null);
+  const running = useRef(false);
 
   useEffect(() => {
     try { const saved = localStorage.getItem(STORAGE); if (saved) setEncrypted(JSON.parse(saved)); }
@@ -53,11 +54,12 @@ export default function SolanaStudio() {
     setProgress(nextProgress); setInput(nextProgress.input); setPrepared(null); setReviewed(false);
   }
   async function run(label: string, task: () => Promise<void>) {
-    if (busy) return;
+    if (running.current) return;
+    running.current = true;
     setBusy(label); setError(''); setNotice('');
     try { await task(); }
     catch (failure) { setError(failure instanceof Error ? failure.message : 'This step failed. Check the devnet status before retrying.'); }
-    finally { setBusy(''); }
+    finally { running.current = false; setBusy(''); }
   }
   async function refresh() {
     if (!project) return;
@@ -99,16 +101,16 @@ export default function SolanaStudio() {
   const batchRows = progress.batch?.rows;
   const settingsLocked = !!progress.tokenCreated || !!progress.poolCreated || !!progress.batch;
   const confirmed = batchRows?.filter(row => row.status === 'confirmed').length || 0;
-  let totalSpend = '—';
+  let totalSpend = 'â€”';
   try { totalSpend = (Number(batchBudget(buyAmount, WALLET_COUNT, Math.round(Number(slippage) * 100)).total) / 1e9).toString(); } catch { /* Validation appears when the user prepares a batch. */ }
 
   return <VStack align="stretch" spacing={6} pb={12}>
-    <HStack justify="space-between" flexWrap="wrap"><Heading size="xl">Solana Launch Studio</Heading><Badge colorScheme="purple" px={3} py={1}>DEVNET · TEST SOL ONLY</Badge></HStack>
+    <HStack justify="space-between" flexWrap="wrap"><Heading size="xl">Solana Launch Studio</Heading><Badge colorScheme="purple" px={3} py={1}>DEVNET Â· TEST SOL ONLY</Badge></HStack>
     <Text>Create a standard Solana token, seed its trading pool, and submit purchases from 40 new wallets in one coordinated batch.</Text>
     <Alert status="info"><AlertIcon /><Text>This online test version cannot access mainnet. Forty purchases use separate transactions; the same block and all-or-nothing execution are not guaranteed.</Text></Alert>
     {error && <Alert status="error"><AlertIcon /><Text overflowWrap="anywhere">{error}</Text></Alert>}
     {notice && <Alert status="success"><AlertIcon /><Text>{notice}</Text></Alert>}
-    {busy && <Alert status="info" role="status"><AlertIcon />{busy}{busy === 'Preparing purchases' ? ` (${done}/40)` : ''}…</Alert>}
+    {busy && <Alert status="info" role="status"><AlertIcon />{busy}{busy === 'Preparing purchases' ? ` (${done}/40)` : ''}â€¦</Alert>}
 
     <Box borderWidth="1px" rounded="lg" p={5}><Heading size="md" mb={3}>Wallets and backup</Heading>
       {!project ? <VStack align="stretch" spacing={3}>

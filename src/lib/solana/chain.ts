@@ -52,7 +52,7 @@ async function send(rpc: Connection, tx: Transaction, signers: Signer[]) {
   tx.feePayer ??= signers[0].publicKey;
   tx.recentBlockhash = (await rpc.getLatestBlockhash('confirmed')).blockhash;
   tx.sign(...signers);
-  const signature = bs58.encode(tx.signature!);
+  const signature = bs58.encode(Uint8Array.from(tx.signature!));
   try { await rpc.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 2 }); }
   catch { throw new Error(`Submission may have failed. Check ${signature} on devnet before trying again.`); }
   return waitForSignature(rpc, signature);
@@ -176,7 +176,7 @@ export async function submitBatch(rpc: Connection, batch: PreparedBatch, remembe
   const signed = batch.prepared.map(({ address, built }) => {
     built.transaction.recentBlockhash = block.blockhash;
     built.transaction.sign(...built.signers);
-    return { address, bytes: built.transaction.serialize(), signature: bs58.encode(built.transaction.signature!) };
+    return { address, bytes: built.transaction.serialize(), signature: bs58.encode(Uint8Array.from(built.transaction.signature!)) };
   });
   // Persist known signatures before broadcasting: uncertain responses must not cause duplicate buys.
   const rows: WalletResult[] = signed.map(item => ({ address: item.address, signature: item.signature, status: 'ready' }));

@@ -2,7 +2,7 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const {load} = require('./helpers.cjs');
 const {Transaction} = require('@solana/web3.js');
-const {TOKEN_2022_PROGRAM_ID, AuthorityType, decodeSetAuthorityInstruction, decodeMintToInstruction} = require('@solana/spl-token');
+const {TOKEN_2022_PROGRAM_ID, AuthorityType, decodeSetAuthorityInstruction, decodeMintToInstruction, decodeInitializeMintInstruction} = require('@solana/spl-token');
 const bs58 = require('bs58').default;
 const {DEVNET_GENESIS} = load('src/lib/solana/plan.ts');
 const chain = load('src/lib/solana/chain.ts', {}, {window: {location: {origin: 'https://novapulse.example'}}, setTimeout, TextEncoder, TextDecoder});
@@ -33,7 +33,7 @@ test('creation transaction includes correct supply, no freeze authority, and min
  const revoke = decodeSetAuthorityInstruction(instructions[instructions.length - 1], TOKEN_2022_PROGRAM_ID);
  assert.equal(revoke.data.authorityType, AuthorityType.MintTokens); assert.equal(revoke.data.newAuthority, null);
  const initializeMint = instructions.find(ix => ix.data[0] === 0);
- assert.equal(initializeMint.data.readUInt32LE(34), 0);
+ assert.equal(decodeInitializeMintInstruction(initializeMint, TOKEN_2022_PROGRAM_ID).data.freezeAuthority, null);
 });
 test('mainnet genesis is rejected before mint creation or faucet use', async () => {
  const project = chain.generateProject(); const rpc = {getGenesisHash: async () => 'mainnet'};
