@@ -10,6 +10,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     let saved = cache.get(pool);
     if (!saved || Date.now() - saved.checkedAt > 90_000) {
+      if (!inFlight.has(pool) && inFlight.size >= 4) { res.setHeader('Cache-Control', 'no-store'); res.setHeader('Retry-After', '90'); return res.status(429).json({ error: 'Research is busy. Wait before checking more markets.' }); }
       if (!inFlight.has(pool)) inFlight.set(pool, (async () => {
         const response = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/pools/${pool}/ohlcv/hour?aggregate=1&limit=10&currency=usd&token=base&include_empty_intervals=true`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
         if (!response.ok) throw new Error(); return hourlyPerformance(await response.json());

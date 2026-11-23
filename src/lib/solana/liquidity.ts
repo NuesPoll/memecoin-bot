@@ -4,8 +4,9 @@ import { DEVNET_PROGRAM_ID, Percent, TxVersion } from '@raydium-io/raydium-sdk-v
 import BN from 'bn.js';
 import { LiquidityIntent, TestProject, TransactionAttempt, assertDevnet, sdk, send } from './chain';
 import { percentageAmount } from './plan';
+import { safeLamports } from './treasury-plan';
 
-export type LiquidityReview = LiquidityIntent & { mint: string; owner: string; lpMint: string; lpAccount: string; lpBalanceRaw: string; percent: number; createdAt: number; used: boolean; built: { transaction: Transaction; signers: Signer[] } };
+export type LiquidityReview = LiquidityIntent & { mint: string; owner: string; lpMint: string; lpAccount: string; lpBalanceRaw: string; feeRaw: string; rentAllowanceRaw: string; percent: number; createdAt: number; used: boolean; built: { transaction: Transaction; signers: Signer[] } };
 async function holding(rpc: Connection, project: TestProject, lpMint: PublicKey) {
   const account = getAssociatedTokenAddressSync(lpMint, project.treasury.publicKey);
   const data = await rpc.getAccountInfo(account, 'confirmed');
@@ -17,7 +18,7 @@ async function holding(rpc: Connection, project: TestProject, lpMint: PublicKey)
 export async function prepareLiquidityRemoval(rpc: Connection, project: TestProject, pool: string, percent: number, slippageBps: number): Promise<LiquidityReview> {
   await assertDevnet(rpc);
   if (!Number.isInteger(slippageBps) || slippageBps < 1 || slippageBps > 500) throw new Error('Choose slippage from 0.01% to 5%.');
-  const createdAt = Date.now(), program = DEVNET_PROGRAM_ID.CREATE_CPMM_POOL_PROGRAM;
+  const program = DEVNET_PROGRAM_ID.CREATE_CPMM_POOL_PROGRAM;
   const poolAccount = await rpc.getAccountInfo(new PublicKey(pool), 'confirmed');
   if (!poolAccount?.owner.equals(program)) throw new Error('Choose this project’s Raydium devnet CPMM pool.');
   const raydium = await sdk(rpc, project.treasury);
@@ -28,13 +29,19 @@ export async function prepareLiquidityRemoval(rpc: Connection, project: TestProj
   const amount = percentageAmount(balance.raw, percent);
   await raydium.account.fetchWalletTokenAccounts();
   const built = await raydium.cpmm.withdrawLiquidity({ poolInfo, poolKeys, lpAmount: new BN(amount.toString()), slippage: new Percent(slippageBps, 10_000), closeWsol: true, txVersion: TxVersion.LEGACY });
-  const withdrawals = built.transaction.instructions.filter(ix => ix.programId.equals(program) && ix.data.subarray(0, 8).equals(Buffer.from([183, 18, 70, 156, 148, 109, 161, 34])));
+  const discriminator = [183, 18, 70, 156, 148, 109, 161, 34];
+  const withdrawals = built.transaction.instructions.filter(ix => ix.programId.equals(program) && ix.data.length >= 8 && ix.data.subarray(0, 8).every((byte, index) => byte === discriminator[index]));
   const ix = withdrawals[0];
-  if (withdrawals.length !== 1 || ix.data.length !== 32 || !ix.keys[0]?.pubkey.equals(project.treasury.publicKey) || !ix.keys[2]?.pubkey.equals(new PublicKey(pool)) || !ix.keys[3]?.pubkey.equals(balance.account) || !ix.keys[12]?.pubkey.equals(lpMint) || ix.data.readBigUInt64LE(8) !== amount) throw new Error('The prepared liquidity instructions did not match your selected LP holding.');
+  if (withdrawals.length !== 1 || ix.data.length !== 32 || !ix.keys[0]?.pubkey.equals(project.treasury.publicKey) || !ix.keys[2]?.pubkey.equals(new PublicKey(pool)) || !ix.keys[3]?.pubkey.equals(balance.account) || !ix.keys[10]?.pubkey.equals(new PublicKey(poolInfo.mintA.address)) || !ix.keys[11]?.pubkey.equals(new PublicKey(poolInfo.mintB.address)) || !ix.keys[12]?.pubkey.equals(lpMint) || ix.data.readBigUInt64LE(8) !== amount) throw new Error('The prepared liquidity instructions did not match your selected LP holding.');
   const a = ix.data.readBigUInt64LE(16), b = ix.data.readBigUInt64LE(24);
   if (a <= BigInt(0) || b <= BigInt(0)) throw new Error('This removal is too small to protect both returned amounts.');
   const signers = [...new Map([project.treasury, ...built.signers].map(signer => [signer.publicKey.toBase58(), signer])).values()];
-  return { pool, mint: project.mint.publicKey.toBase58(), owner: project.treasury.publicKey.toBase58(), lpMint: lpMint.toBase58(), lpAccount: balance.account.toBase58(), lpBalanceRaw: balance.raw, lpAmountRaw: amount.toString(), minimumTokenRaw: (tokenIsA ? a : b).toString(), minimumSolRaw: (tokenIsA ? b : a).toString(), percent, createdAt, used: false, built: { transaction: built.transaction, signers } };
+  if (built.transaction.feePayer && !built.transaction.feePayer.equals(project.treasury.publicKey)) throw new Error('The removal must use your launch wallet as fee payer.');
+  built.transaction.feePayer = project.treasury.publicKey;
+  built.transaction.recentBlockhash = (await rpc.getLatestBlockhash('confirmed')).blockhash;
+  const feeRaw = safeLamports((await rpc.getFeeForMessage(built.transaction.compileMessage(), 'confirmed')).value).toString();
+  const rentAllowanceRaw = (safeLamports(await rpc.getMinimumBalanceForRentExemption(165)) * BigInt(2)).toString();
+  return { pool, mint: project.mint.publicKey.toBase58(), owner: project.treasury.publicKey.toBase58(), lpMint: lpMint.toBase58(), lpAccount: balance.account.toBase58(), lpBalanceRaw: balance.raw, feeRaw, rentAllowanceRaw, lpAmountRaw: amount.toString(), minimumTokenRaw: (tokenIsA ? a : b).toString(), minimumSolRaw: (tokenIsA ? b : a).toString(), percent, createdAt: Date.now(), used: false, built: { transaction: built.transaction, signers } };
 }
 export async function submitLiquidityRemoval(rpc: Connection, project: TestProject, review: LiquidityReview, track: (attempt: TransactionAttempt | undefined) => void) {
   await assertDevnet(rpc);

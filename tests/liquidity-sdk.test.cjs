@@ -16,7 +16,7 @@ function fixture({reverse=false,frozen=false,amount=1000n}={}){
  return {api,rpc,project,pool:pool.toBase58(),poolInfo,setAmount:value=>held=value,setOwner:value=>owner=value,get broadcasts(){return broadcasts;},get parsed(){return parsed;}};
 }
 test('LP preview verifies the owned associated holding and reads exact encoded minimums in either mint order',async()=>{
- for(const reverse of [false,true]){const f=fixture({reverse}),review=await f.api.prepareLiquidityRemoval(f.rpc,f.project,f.pool,25,100);assert.equal(review.lpBalanceRaw,'1000');assert.equal(review.lpAmountRaw,'250');assert.equal(review.minimumTokenRaw,'100');assert.equal(review.minimumSolRaw,'5000');assert.equal(f.broadcasts,0);}
+ for(const reverse of [false,true]){const f=fixture({reverse}),review=await f.api.prepareLiquidityRemoval(f.rpc,f.project,f.pool,25,100);assert.equal(review.lpBalanceRaw,'1000');assert.equal(review.lpAmountRaw,'250');assert.equal(review.minimumTokenRaw,'100');assert.equal(review.minimumSolRaw,'5000');assert.equal(review.feeRaw,'5000');assert.equal(review.rentAllowanceRaw,'4078560');assert.equal(f.broadcasts,0);}
 });
 test('reviewed LP removal signs the actual withdrawal instruction and preserves recovery intent before broadcast',async()=>{
  const f=fixture(),review=await f.api.prepareLiquidityRemoval(f.rpc,f.project,f.pool,100,100),events=[];
@@ -38,4 +38,8 @@ test('unknown liquidity responses retain their intent and mainnet is always reje
  const f=fixture(),review=await f.api.prepareLiquidityRemoval(f.rpc,f.project,f.pool,25,100),events=[];let sends=0;f.rpc.sendRawTransaction=async()=>{sends++;throw new Error('private provider detail');};f.rpc.getSignatureStatuses=async()=>({value:[null]});
  await assert.rejects(f.api.submitLiquidityRemoval(f.rpc,f.project,review,next=>events.push(next)),/Check transaction status/);assert.equal(sends,1);assert.equal(events.length,1);assert.equal(events[0].liquidity.pool,f.pool);assert.doesNotMatch(JSON.stringify(events),/private provider|secretKey/);
  const mainnet={...f.rpc,getGenesisHash:async()=> 'mainnet'};await assert.rejects(f.api.prepareLiquidityRemoval(mainnet,f.project,f.pool,25,100),/Devnet/);
+});
+
+test('liquidity previews reject an unavailable network-fee estimate without signing or sending',async()=>{
+ const f=fixture();f.rpc.getFeeForMessage=async()=>({value:null});await assert.rejects(f.api.prepareLiquidityRemoval(f.rpc,f.project,f.pool,25,100),/invalid balance or fee/);assert.equal(f.broadcasts,0);
 });
