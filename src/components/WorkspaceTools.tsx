@@ -6,10 +6,13 @@ import type { StudioView } from './StudioChrome';
 
 const destinations: { view: StudioView; title: string; detail: string }[] = [
   { view: 'overview', title: 'Workspace overview', detail: 'Progress, balance and launch shortcuts' },
+  { view: 'research', title: 'Research token momentum', detail: 'Pool age, 2/3/6/7 hour returns and original token drafts' },
   { view: 'launch', title: 'Launch a token', detail: 'Token settings, supply and liquidity pool' },
   { view: 'wallets', title: 'Manage wallets', detail: 'Unlock, restore, back up and view balances' },
   { view: 'trading', title: 'Review a trade', detail: 'Buying batch and individual sales' },
   { view: 'treasury', title: 'Collect to your wallet', detail: 'Treasury, receiving address and reviewed test SOL withdrawals' },
+  { view: 'liquidity', title: 'Remove liquidity', detail: 'Review owned LP tokens and returned asset minimums' },
+  { view: 'account', title: 'Sign in to your account', detail: 'Email links, session status and account setup' },
   { view: 'activity', title: 'Find a transaction', detail: 'Search signatures and filter recorded results' },
   { view: 'practice', title: 'Open practice lab', detail: 'Virtual wallets; no transactions' },
 ];
@@ -44,10 +47,10 @@ export function ActivityExplorer({ rows, navigate }: { rows: ActivityRow[]; navi
   const [query, setQuery] = useState('');
   const visible = filterActivity(rows, filter, query);
   const filters: { id: ActivityFilter; label: string }[] = [{ id: 'all', label: 'All results' }, { id: 'confirmed', label: 'Confirmed' }, { id: 'unresolved', label: 'Unresolved' }, { id: 'failed', label: 'Failed / expired' }];
-  return <div className="np-panel"><div className="np-activity-heading"><div><h2>Transaction explorer</h2><p>Your recorded buys and sales. Submission is not confirmation.</p></div><span className="np-count-chip">{rows.length} records</span></div>
+  return <div className="np-panel"><div className="np-activity-heading"><div><h2>Transaction explorer</h2><p>Your recorded trades, collections and liquidity removals. Submission is not confirmation.</p></div><span className="np-count-chip">{rows.length} records</span></div>
     <div className="np-filter-tabs" role="group" aria-label="Filter transaction status">{filters.map(item => <button key={item.id} aria-pressed={filter === item.id} onClick={() => setFilter(item.id)}>{item.label}<span>{filterActivity(rows, item.id, '').length}</span></button>)}</div>
     <Input aria-label="Search transactions" placeholder="Search wallet address, signature or action..." value={query} onChange={event => setQuery(event.target.value)}/>
-    {!visible.length ? <div className="np-empty"><h3>{rows.length ? 'No matching transactions' : 'No transactions recorded yet'}</h3><p>{rows.length ? 'Try another status or clear your search.' : 'Submit a reviewed devnet trade to start your transaction history.'}</p>{rows.length ? <button className="np-action" onClick={() => { setFilter('all'); setQuery(''); }}>Clear filters</button> : <button className="np-action" onClick={() => navigate('trading')}>Open trading →</button>}</div> : <div className="np-activity-table"><table><thead><tr><th>Action</th><th>Wallet</th><th>Signature</th><th>Status</th></tr></thead><tbody>{visible.map((row, i) => <tr key={row.signature || `${row.address}-${i}`}><td><span className={`np-trade-kind ${row.kind.toLowerCase()}`}>{row.kind === 'Buy' ? '↙' : '↗'} {row.kind}</span></td><td><code title={row.address}>{row.address.slice(0, 6)}...{row.address.slice(-6)}</code></td><td>{row.signature ? <a href={`https://explorer.solana.com/tx/${encodeURIComponent(row.signature)}?cluster=devnet`} target="_blank" rel="noreferrer">{row.signature.slice(0, 8)}...{row.signature.slice(-6)} ↗</a> : 'Not submitted'}</td><td><span className="np-status-badge" data-status={row.status}>{row.status}</span></td></tr>)}</tbody></table></div>}
+    {!visible.length ? <div className="np-empty"><h3>{rows.length ? 'No matching transactions' : 'No transactions recorded yet'}</h3><p>{rows.length ? 'Try another status or clear your search.' : 'Submit a reviewed devnet trade to start your transaction history.'}</p>{rows.length ? <button className="np-action" onClick={() => { setFilter('all'); setQuery(''); }}>Clear filters</button> : <button className="np-action" onClick={() => navigate('trading')}>Open trading →</button>}</div> : <div className="np-activity-table"><table><thead><tr><th>Action</th><th>Wallet</th><th>Signature</th><th>Status</th></tr></thead><tbody>{visible.map((row, i) => <tr key={row.signature || `${row.address}-${i}`}><td><span className={`np-trade-kind ${row.kind.toLowerCase().replace(/\s/g, '-')}`}>{row.kind === 'Buy' ? '↙' : '↗'} {row.kind}</span></td><td><code title={row.address}>{row.address.slice(0, 6)}...{row.address.slice(-6)}</code></td><td>{row.signature ? <a href={`https://explorer.solana.com/tx/${encodeURIComponent(row.signature)}?cluster=devnet`} target="_blank" rel="noreferrer">{row.signature.slice(0, 8)}...{row.signature.slice(-6)} ↗</a> : 'Not submitted'}</td><td><span className="np-status-badge" data-status={row.status}>{row.status}</span></td></tr>)}</tbody></table></div>}
     <p className="np-command-hint" role="status">Showing {visible.length} of {rows.length} recorded transactions. Unknown results must be checked before another submission.</p>
   </div>;
 }

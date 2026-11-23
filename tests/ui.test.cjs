@@ -129,3 +129,21 @@ test('Treasury shows the receiving address, reserve and honest balance scope whi
  assert.match(html,/Your receiving Solana wallet address/);assert.match(html,/Leave test SOL in each source wallet/);assert.match(html,/Include the launch wallet/);assert.match(html,/not a profit calculation/);assert.match(html,/Unsold project tokens/);
  assert.ok(html.match(/<button\b[^>]*>Preview collection<\/button>/)[0].includes('disabled='));assert.doesNotMatch(html,/seed phrase<\/label>/);
 });
+
+test('new research, liquidity and account panels expose honest availability and locked controls',()=>{
+ const research=load('src/components/TokenResearch.tsx').default;
+ const text=render(research,{active:false,locked:false,apply:()=>{}});assert.match(text,/Pool created within/);assert.match(text,/Performance window/);assert.match(text,/2 complete hours/);assert.match(text,/token mint time/);assert.match(text,/not a ranking of the whole market/);
+ const liquidity=load('src/components/LiquidityManager.tsx').default;
+ const html=renderToStaticMarkup(React.createElement(ChakraProvider,null,React.createElement(liquidity,{project:null,disabled:true,busy:false,records:[],run:async()=>{},track:()=>{},record:()=>{},refresh:async()=>{},navigate:()=>{}})));
+ assert.ok(html.match(/<button\b[^>]*>Preview liquidity removal<\/button>/)[0].includes('disabled='));assert.match(html,/does not remove other providers/);
+ const account=load('src/components/AccountPanel.tsx',{'./Auth':{useAuth:()=>({configured:false,user:null})}}).default;assert.match(render(account,{busy:false,lock:()=>{}}),/prepared but not connected/);
+});
+
+test('creating a wallet project preserves an original research draft instead of resetting it',async()=>{
+ const draft={name:'My Orbit',symbol:'ORBIT',supply:'1000000',poolTokens:'100000',poolSol:'0.1'},saved=new Map();let index=0;
+ const fakeReact={...React,useEffect:()=>{},useRef:value=>({current:value}),useState:initial=>{const current=index++;return [current===2?'long test password':current===7?draft:initial,()=>{}];}};
+ const pub=value=>({publicKey:{toBase58:()=>value}}),project={mint:pub('1'.repeat(32)),treasury:pub('2'.repeat(32)),wallets:[]};
+ const Component=load('src/components/SolanaStudio.tsx',{'react':fakeReact,'@/lib/solana/chain':{generateProject:()=>project,serializeProject:()=> 'serialized-keys'},'@/lib/solana/vault':{createVaultSession:async()=>({seal:async()=>({ciphertext:'encrypted-only'})})}},{TextEncoder,TextDecoder,localStorage:{getItem:key=>saved.get(key),setItem:(key,value)=>saved.set(key,value)}}).default;
+ function find(node){if(!node||typeof node!=='object')return null;if(node.props?.children==='Create 40 wallets')return node;for(const child of [node.props?.children].flat(Infinity)){const found=find(child);if(found)return found;}return null;}
+ const button=find(Component());assert.ok(button);await button.props.onClick();const publicRecord=[...saved.entries()].find(([key])=>key.includes('.public.'));assert.ok(publicRecord);assert.equal(JSON.parse(publicRecord[1]).input.name,'My Orbit');assert.doesNotMatch([...saved.values()].join(','),/serialized-keys/);
+});

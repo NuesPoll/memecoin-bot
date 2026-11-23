@@ -79,3 +79,13 @@ Unknown/submitted results pause new project transactions. Refresh checks signatu
 This collects only already available test SOL, including proceeds of completed devnet sales. It does not automatically sell tokens, remove liquidity, reclaim account rent or calculate realized profit. No mainnet capability has been added. Tests use real SDK transfer serialization/signature verification with mocked RPC responses; funded live collection has not been executed by the agent.
 
 Primary references: https://solana.com/docs/rpc/http/getfeeformessage and https://solana.com/docs/core/transactions .
+
+## Reviewed liquidity removal
+
+Liquidity supports 25%, 50% or 100% of unlocked LP in the launch wallet's standard associated LP-token account. It verifies the full devnet genesis, actual Raydium devnet pool owner, matching project token/WSOL pair, initialized non-frozen LP account ownership and exact integer LP balance. Burned, locked or other-wallet LP cannot be removed. Removing 100% of the owned unlocked LP does not imply deletion of the pool or removal of another provider's share.
+
+The pinned SDK prepares CPMM withdrawLiquidity with closeWsol:true. Before review, NovaPulse decodes the prepared withdrawal discriminator and raw u64 fields, verifies its owner/pool/LP-source/mint binding and shows the exact encoded minimum token and SOL outputs. It does not substitute a floating-point estimate for enforceable minimums. Reviews expire in 30 seconds and are consumed before further asynchronous work. Submission rechecks the LP holding, estimates network fees and account-rent allowance, signs locally, and persists public liquidity intent and signature before broadcast. Returned assets go to the launch wallet; native test SOL may then be collected through Treasury.
+
+Pending or unknown removal results pause new transactions and require signature checks. History is included in encrypted project snapshots and restored confirmations are rechecked. A later balance-refresh error cannot mark a confirmed removal as failed. Actual SDK instruction serialization/signing and guards are covered with mocked RPC responses; no funded live removal was executed by the agent. Mainnet removal is disabled.
+
+Primary SDK reference: https://github.com/raydium-io/raydium-sdk-V2-demo/blob/master/src/cpmm/withdraw.ts

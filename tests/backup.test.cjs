@@ -112,3 +112,11 @@ test('conflicting pending transactions or buying batches fail without silently l
  const local=progress();local.batch.rows[0].signature='5'.repeat(88);
  assert.throws(()=>backup.mergeRecoveredProgress(local,snapshot),/different buying batches/);
 });
+
+test('liquidity intent and history survive encrypted recovery while mismatched pools are rejected',()=>{
+ const p=progress();const removal={signature:'6'.repeat(88),action:'liquidity',lastValidBlockHeight:100,liquidity:{pool:p.pool,lpAmountRaw:'250',minimumTokenRaw:'100',minimumSolRaw:'5000'},status:'confirmed'};
+ p.pending=removal;p.liquidityRemovals=[removal];
+ const restored=backup.recoveredProgress(payload(p),identity).progress;assert.equal(restored.pending.liquidity.lpAmountRaw,'250');assert.equal(restored.liquidityRemovals[0].status,'unknown');
+ const merged=backup.mergeRecoveredProgress({input},restored);assert.equal(merged.liquidityRemovals.length,1);assert.equal(merged.recoveryRequired,true);
+ p.pending={...removal,liquidity:{...removal.liquidity,pool:'7'.repeat(32)}};assert.throws(()=>payload(p),/damaged/);
+});

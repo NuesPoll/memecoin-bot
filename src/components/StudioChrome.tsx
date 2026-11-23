@@ -1,11 +1,12 @@
 import NextLink from 'next/link';
 import type { ReactNode } from 'react';
 import { WorkspaceCommand } from './WorkspaceTools';
+import { useAuth } from './Auth';
 
-export const studioViews = ['overview', 'launch', 'wallets', 'trading', 'treasury', 'activity', 'practice'] as const;
+export const studioViews = ['overview', 'research', 'launch', 'wallets', 'liquidity', 'trading', 'treasury', 'activity', 'practice', 'account'] as const;
 export type StudioView = typeof studioViews[number];
-const labels: Record<StudioView, string> = { overview: 'Overview', launch: 'Token launch', wallets: 'Wallet manager', trading: 'Trading', treasury: 'Treasury', activity: 'Activity', practice: 'Practice lab' };
-const descriptions: Record<StudioView, string> = { overview: 'Your next idea starts here.', launch: 'From an idea to your own Solana token.', wallets: 'One secure home for your wallet group.', trading: 'Clear amounts. Reviewed decisions.', treasury: 'Your balances. One receiving wallet.', activity: 'Every signature has a story.', practice: 'Explore the flow with virtual tokens.' };
+const labels: Record<StudioView, string> = { overview: 'Overview', research: 'Token research', launch: 'Token launch', wallets: 'Wallet manager', liquidity: 'Liquidity', trading: 'Trading', treasury: 'Treasury', activity: 'Activity', practice: 'Practice lab', account: 'Account' };
+const descriptions: Record<StudioView, string> = { overview: 'Your next idea starts here.', research: 'Market age, historical returns and original ideas.', launch: 'From an idea to your own Solana token.', wallets: 'One secure home for your wallet group.', liquidity: 'Manage the liquidity you actually own.', trading: 'Clear amounts. Reviewed decisions.', treasury: 'Your balances. One receiving wallet.', activity: 'Every signature has a story.', practice: 'Explore the flow with virtual tokens.', account: 'Email sign-in. Your vault stays yours.' };
 export function StudioIcon({ name = 'overview' }: { name?: string }) {
   const paths: Record<string, ReactNode> = {
     overview: <><rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/></>,
@@ -13,6 +14,9 @@ export function StudioIcon({ name = 'overview' }: { name?: string }) {
     wallets: <><rect x="3" y="6" width="18" height="15" rx="3"/><path d="M17 6V3L5 6m16 6h-6v5h6m-4-2.5h.01"/></>,
     trading: <><path d="M4 7h15m-4-4 4 4-4 4M20 17H5m4-4-4 4 4 4"/></>,
     treasury: <><path d="M3 8h18L12 3 3 8Zm2 3v7m5-7v7m4-7v7m5-7v7M3 21h18"/></>,
+    liquidity: <><path d="M12 3S5 11 5 15a7 7 0 0 0 14 0c0-4-7-12-7-12Z"/><path d="M8 15c0 3 2 4 4 4"/></>,
+    research: <><circle cx="10" cy="10" r="6"/><path d="m15 15 6 6M6 11l3-3 2 2 3-4"/></>,
+    account: <><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></>,
     activity: <><path d="M3 12h4l3-8 4 16 3-8h4"/></>,
     practice: <><path d="M9 3h6m-5 0v7l-6 9a1 1 0 0 0 1 2h14a1 1 0 0 0 1-2l-6-9V3M8 15h8"/></>,
     arrow: <><path d="M5 12h14m-5-5 5 5-5 5"/></>,
@@ -22,11 +26,12 @@ export function StudioIcon({ name = 'overview' }: { name?: string }) {
 }
 function Brand() { return <span className="np-brand"><span className="np-brand-mark"><StudioIcon name="activity"/></span><span>nova<span className="np-brand-light">pulse</span><small>LAUNCH WORKSPACE</small></span></span>; }
 export default function StudioChrome({ view, navigate, unlocked, network, children, busy = false, refresh, lock }: { view: StudioView; navigate: (view: StudioView) => void; unlocked: boolean; network: string; children: ReactNode; busy?: boolean; refresh?: () => void; lock?: () => void }) {
+  const { user } = useAuth();
   const nav = (mobile = false) => <nav aria-label={mobile ? 'Mobile navigation' : 'Primary navigation'} className={mobile ? 'np-mobile-nav' : 'np-nav'}>{studioViews.map((id, index) => <a key={id} href={`#${id}`} aria-current={view === id ? 'page' : undefined} onClick={event => { event.preventDefault(); navigate(id); }}><StudioIcon name={id}/><span>{labels[id]}</span>{!mobile && <small>{String(index + 1).padStart(2, '0')}</small>}</a>)}</nav>;
   return <div className="nova-app">
     <a className="np-skip" href="#studio-main">Skip to workspace</a>
     <aside className="np-sidebar"><a href="#overview" aria-label="NovaPulse overview" onClick={event => { event.preventDefault(); navigate('overview'); }}><Brand/></a><div className="np-workspace-label">YOUR WORKSPACE <span>01</span></div>{nav()}<div className="np-sidebar-bottom"><div className="np-vault-state"><StudioIcon name="shield"/><div><strong>{unlocked ? 'Vault unlocked' : 'Your keys. Your control.'}</strong><p>{unlocked ? 'Keys stay in this browser' : 'Encrypted in your browser'}</p></div></div><div className="np-side-network"><i/>SOLANA DEVNET<span>TEST ONLY</span></div><NextLink className="np-legacy" href="/dashboard">Market dashboard <span>↗</span></NextLink></div></aside>
-    <div className="np-workspace"><header className="np-topbar"><div className="np-mobile-brand"><Brand/></div><div className="np-breadcrumb">Workspace <span>/</span><strong>{labels[view]}</strong></div><div className="np-top-actions" data-unlocked={unlocked}><WorkspaceCommand navigate={navigate}/>{unlocked && <><button className="np-utility-button" disabled={busy} onClick={refresh} aria-label="Refresh wallet balances">↻</button><button className="np-utility-button" disabled={busy} onClick={lock} aria-label="Lock wallet vault">Lock</button></>}<span className="np-network-pill" title={network}><i className={network.startsWith('Solana devnet connection verified') ? 'is-ready' : ''}/>Solana devnet</span><button className="np-vault-button" onClick={() => navigate('wallets')}><StudioIcon name="wallets"/>{unlocked ? 'Manage wallets' : 'Set up wallets'}</button></div></header>{nav(true)}
+    <div className="np-workspace"><header className="np-topbar"><div className="np-mobile-brand"><Brand/></div><div className="np-breadcrumb">Workspace <span>/</span><strong>{labels[view]}</strong></div><div className="np-top-actions" data-unlocked={unlocked}><WorkspaceCommand navigate={navigate}/><button className="np-account-button" onClick={() => navigate('account')}><StudioIcon name="account"/>{user ? 'Account' : 'Sign in'}</button>{unlocked && <><button className="np-utility-button" disabled={busy} onClick={refresh} aria-label="Refresh wallet balances">↻</button><button className="np-utility-button" disabled={busy} onClick={lock} aria-label="Lock wallet vault">Lock</button></>}<span className="np-network-pill" title={network}><i className={network.startsWith('Solana devnet connection verified') ? 'is-ready' : ''}/>Solana devnet</span><button className="np-vault-button" onClick={() => navigate('wallets')}><StudioIcon name="wallets"/>{unlocked ? 'Manage wallets' : 'Set up wallets'}</button></div></header>{nav(true)}
       <main id="studio-main" className="np-main" tabIndex={-1}><div className="np-page-heading"><div><p className="np-eyebrow">SOLANA LAUNCH STUDIO</p><h1>{labels[view]}<span className="np-heading-dot">.</span></h1><p>{descriptions[view]}</p></div><span className="np-test-label">DEVNET / TEST SOL ONLY</span></div>{children}<footer className="np-footer"><span>NovaPulse <b> / </b> Built for your next idea.</span><span>Devnet only. Real-money trading is disabled.</span></footer></main>
     </div>
   </div>;

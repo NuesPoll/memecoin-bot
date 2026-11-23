@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, AlertIcon, Badge, Box, Button, Checkbox, FormControl, FormLabel, Heading, HStack, Input, Link, SimpleGrid, Table, Tbody, Td, Text, Th, Thead, Tr, VStack } from '@chakra-ui/react';
-import type { LaunchInput, PreparedBatch, SaleRecord, TestProject, TokenHolding, TransactionAttempt } from '@/lib/solana/chain';
+import type { LaunchInput, LiquidityRecord, PreparedBatch, SaleRecord, TestProject, TokenHolding, TransactionAttempt } from '@/lib/solana/chain';
 import { WALLET_COUNT, WalletResult, batchBudget, formatUnits, validateLaunch } from '@/lib/solana/plan';
 import { EncryptedVault, VaultSession, createVaultSession, openVault } from '@/lib/solana/vault';
 import { ProjectProgress as Progress, backupPayload, mergeRecoveredProgress, readProgress, recoveredProgress } from '@/lib/solana/backup';
@@ -10,6 +10,9 @@ import { ActivityExplorer, CopyAddress, LaunchChecklist } from './WorkspaceTools
 import StudioChrome, { StudioOverview, StudioIcon, studioViews, StudioView } from './StudioChrome';
 import Treasury from './Treasury';
 import { CollectionRecord, collectionUnresolved, rememberCollection } from '@/lib/solana/treasury-plan';
+import LiquidityManager from './LiquidityManager';
+import TokenResearch from './TokenResearch';
+import AccountPanel from './AccountPanel';
 
 const STORAGE = 'novapulse.devnet.encrypted-vault.v1';
 const initialInput: LaunchInput = { name: 'NovaPulse Test', symbol: 'NOVA', supply: '1000000', poolTokens: '100000', poolSol: '0.1' };
@@ -120,7 +123,7 @@ export default function SolanaStudio() {
     const vault = await session.seal(api.serializeProject(next));
     // Only ciphertext is stored. Wallet keys never go into localStorage, logs or a request body.
     localStorage.setItem(STORAGE, JSON.stringify(vault));
-    setEncrypted(vault); install(next); vaultSession.current = session; setPassword(''); setBackupSaved(false); setBackupAt('');
+    setEncrypted(vault); install(next, { input }); vaultSession.current = session; setPassword(''); setBackupSaved(false); setBackupAt('');
     setNotice('40 buying wallets and a separate launch wallet were created in your browser. Download the encrypted backup before proceeding.');
   }
   async function unlock() {
@@ -163,6 +166,10 @@ export default function SolanaStudio() {
   function recordCollection(next: CollectionRecord) {
     remember({ ...progressRef.current, collections: rememberCollection(progressRef.current.collections || [], next) });
   }
+  function recordLiquidity(next: LiquidityRecord) {
+    const previous = progressRef.current.liquidityRemovals || [];
+    remember({ ...progressRef.current, liquidityRemovals: [...previous.filter(row => row.signature !== next.signature), next].slice(-20) });
+  }
   async function checkPending() {
     const pending = progressRef.current.pending;
     if (!pending) return;
@@ -170,6 +177,7 @@ export default function SolanaStudio() {
     const status = await api.checkTransaction(api.connection(), pending);
     if (status === 'unknown') { setNotice('The transaction result is still unknown. New submissions remain paused; check again shortly.'); return; }
     if (pending.action === 'sell') recordSale({ ...pending, status });
+    if (pending.action === 'liquidity') recordLiquidity({ ...pending, status });
     remember({ ...progressRef.current, pending: undefined, ...(status === 'confirmed' && pending.action === 'token' ? { tokenCreated: true } : {}), ...(status === 'confirmed' && pending.action === 'pool' ? { poolCreated: true } : {}) });
     await refresh();
     setNotice(status === 'confirmed' ? 'The transaction is confirmed on devnet. You can continue.' : status === 'expired' ? 'This signature was not found and its validity window has ended. Check on-chain progress before preparing this step again.' : 'The transaction failed on devnet. Check balances and on-chain progress before preparing this step again.');
@@ -180,7 +188,8 @@ export default function SolanaStudio() {
     remember({ ...current, batch: { ...current.batch, rows: current.batch.rows.map(previous => previous.address === row.address ? row : previous) } });
   }
   const collectionPending = collectionUnresolved(progress.collections || []);
-  const disabled = !!busy || !project || !backupSaved || !!progress.pending || !!progress.recoveryRequired || collectionPending;
+  const liquidityPending = (progress.liquidityRemovals || []).some(row => row.status === 'unknown');
+  const disabled = !!busy || !project || !backupSaved || !!progress.pending || !!progress.recoveryRequired || collectionPending || liquidityPending;
   const tradingPaused = disabled || !!progress.historyMissing;
   const batchRows = progress.batch?.rows;
   const settingsLocked = !!progress.tokenCreated || !!progress.poolCreated || !!progress.batch || !!progress.pending || !!progress.recoveryRequired;
@@ -199,9 +208,10 @@ export default function SolanaStudio() {
     {project && progress.historyMissing && !progress.recoveryRequired && <Alert status="warning"><AlertIcon /><Text>This wallet-only backup has no trading history in this browser. Trading stays paused to avoid repeating old transactions. Use the original browser or restore a recent complete project backup. If the token has not been created, an on-chain check can safely clear this pause.</Text></Alert>}
     {progress.pending && <Box borderWidth="1px" rounded="lg" p={5}><Text>One {progress.pending.action} transaction needs a status check. New submissions are paused to avoid repeating it.</Text><Link href={explorer(progress.pending.signature, 'tx')} isExternal overflowWrap="anywhere">View devnet transaction</Link><Button ml={3} isDisabled={!!busy || !project} onClick={() => run('Checking transaction', checkPending)}>Check transaction status</Button></Box>}
     {project && collectionPending && <Alert status="warning"><AlertIcon /><VStack align="stretch"><Text>Collection transfers need a status check. New transactions are paused until these results are resolved.</Text><Button variant="link" alignSelf="start" onClick={() => navigate('treasury')}>Open collection history</Button></VStack></Alert>}
+    {project && liquidityPending && !progress.pending && <Alert status="warning"><AlertIcon /><VStack align="stretch"><Text>A liquidity removal needs a status check before new transactions.</Text><Button variant="link" alignSelf="start" onClick={() => navigate('liquidity')}>Open removal history</Button></VStack></Alert>}
 
     </div>
-    {view !== 'overview' && view !== 'practice' && <LaunchChecklist unlocked={!!project} backedUp={backupSaved} tokenCreated={!!progress.tokenCreated} poolCreated={!!progress.poolCreated} navigate={navigate} />}
+    {!['overview', 'practice', 'research', 'account'].includes(view) && <LaunchChecklist unlocked={!!project} backedUp={backupSaved} tokenCreated={!!progress.tokenCreated} poolCreated={!!progress.poolCreated} navigate={navigate} />}
     <section className="np-view" hidden={view !== 'overview'} aria-label="Overview workspace">
       <StudioOverview navigate={navigate} unlocked={!!project} backedUp={backupSaved} tokenCreated={!!progress.tokenCreated} poolCreated={!!progress.poolCreated} balance={solBalances.length ? solBalances[0] : undefined} confirmed={recordedTrades} />
     </section>
@@ -276,8 +286,11 @@ export default function SolanaStudio() {
     {!project && <div className="np-panel np-empty"><StudioIcon name="wallets"/><h3>Your wallet group will appear here</h3><p>Create or restore your vault above to view your 40 buying wallets and balances.</p></div>}
     </section>
     <section className="np-view" hidden={view !== 'treasury'} aria-label="Treasury workspace"><Treasury key={project?.mint.publicKey.toBase58() || 'locked'} project={project} destination={progress.receivingAddress} disabled={disabled} busy={!!busy} records={progress.collections || []} run={run} record={recordCollection} saveDestination={receivingAddress => remember({ ...progressRef.current, receivingAddress })} refresh={refresh} navigate={navigate}/></section>
+    <section className="np-view" hidden={view !== 'liquidity'} aria-label="Liquidity workspace"><LiquidityManager key={(project?.mint.publicKey.toBase58() || 'locked') + ':' + (progress.pool || '')} project={project} pool={progress.poolCreated ? progress.pool : undefined} disabled={tradingPaused} busy={!!busy} records={progress.liquidityRemovals || []} run={run} track={trackTransaction} record={recordLiquidity} refresh={refresh} navigate={navigate}/></section>
+    <section className="np-view" hidden={view !== 'research'} aria-label="Token research workspace"><TokenResearch active={view === 'research'} locked={settingsLocked || !!busy} apply={draft => { if (settingsLocked || busy) return; editInput({ ...input, ...draft }); setNotice('Original token draft applied. Review supply and liquidity settings before creating your devnet token. No transaction was submitted.'); navigate('launch'); }}/></section>
+    <section className="np-view" hidden={view !== 'account'} aria-label="Account workspace"><AccountPanel busy={!!busy} lock={lock}/></section>
     <section className="np-view" hidden={view !== 'activity'} aria-label="Transaction activity">
-      <ActivityExplorer rows={[...(batchRows || []).map(row => ({ ...row, kind: 'Buy' as const })), ...(progress.sales || []).map(sale => ({ address: sale.sale?.walletAddress || '', signature: sale.signature, status: sale.status, kind: 'Sell' as const })), ...(progress.collections || []).flatMap(record => record.rows.map(row => ({ ...row, destination: record.destination, kind: 'Collect' as const })))]} navigate={navigate} />
+      <ActivityExplorer rows={[...(batchRows || []).map(row => ({ ...row, kind: 'Buy' as const })), ...(progress.sales || []).map(sale => ({ address: sale.sale?.walletAddress || '', signature: sale.signature, status: sale.status, kind: 'Sell' as const })), ...(progress.collections || []).flatMap(record => record.rows.map(row => ({ ...row, destination: record.destination, kind: 'Collect' as const }))), ...(progress.liquidityRemovals || []).map(row => ({ address: project?.treasury.publicKey.toBase58() || '', signature: row.signature, status: row.status, kind: 'Remove LP' as const }))]} navigate={navigate} />
     </section>
     <section className="np-view" hidden={view !== 'practice'} aria-label="Practice workspace"><PracticeSimulation active={view === 'practice'} /></section>
     <p className="np-network-note" role="status"><StudioIcon name="shield"/>{network}</p>

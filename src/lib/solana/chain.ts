@@ -10,8 +10,10 @@ export type TestProject = { treasury: Keypair; mint: Keypair; wallets: Keypair[]
 export type LaunchInput = { name: string; symbol: string; supply: string; poolTokens: string; poolSol: string };
 export type BatchRecord = { rows: WalletResult[]; lastValidBlockHeight: number };
 export type SaleIntent = { walletAddress: string; tokenAmountRaw: string; minimumSolRaw: string };
-export type TransactionAttempt = { signature: string; lastValidBlockHeight: number; action: 'token' | 'pool' | 'funding' | 'sell'; sale?: SaleIntent };
+export type LiquidityIntent = { pool: string; lpAmountRaw: string; minimumTokenRaw: string; minimumSolRaw: string };
+export type TransactionAttempt = { signature: string; lastValidBlockHeight: number; action: 'token' | 'pool' | 'funding' | 'sell' | 'liquidity'; sale?: SaleIntent; liquidity?: LiquidityIntent };
 export type SaleRecord = TransactionAttempt & { status: 'unknown' | 'confirmed' | 'failed' | 'expired' };
+export type LiquidityRecord = TransactionAttempt & { status: 'unknown' | 'confirmed' | 'failed' | 'expired' };
 export type TokenHolding = { address: string; rawAmount: string; frozen: boolean };
 type TrackTransaction = (attempt: TransactionAttempt | undefined) => void;
 type BuiltTransaction = { transaction: Transaction; signers: Signer[] };
@@ -52,7 +54,7 @@ async function waitForSignature(rpc: Connection, signature: string) {
   throw new Error(`Confirmation is still unknown. Check ${signature} before trying again.`);
 }
 
-async function send(rpc: Connection, tx: Transaction, signers: Signer[], accountCosts = 0, action: TransactionAttempt['action'] = 'token', track?: TrackTransaction) {
+export async function send(rpc: Connection, tx: Transaction, signers: Signer[], accountCosts = 0, action: TransactionAttempt['action'] = 'token', track?: TrackTransaction) {
   await assertDevnet(rpc);
   tx.feePayer ??= signers[0].publicKey;
   const block = await rpc.getLatestBlockhash('confirmed');
@@ -102,6 +104,9 @@ export async function checkSaleHistory(rpc: Connection, sales: SaleRecord[]): Pr
   const statuses = (await rpc.getSignatureStatuses(sales.map(sale => sale.signature), { searchTransactionHistory: true })).value;
   if (statuses.length !== sales.length) throw new Error('The transaction history response was incomplete. Check again; no transaction was submitted.');
   return sales.map((sale, i) => ({ ...sale, status: statuses[i]?.err ? 'failed' : statuses[i]?.confirmationStatus === 'confirmed' || statuses[i]?.confirmationStatus === 'finalized' ? 'confirmed' : 'unknown' }));
+}
+export async function checkLiquidityHistory(rpc: Connection, records: LiquidityRecord[]): Promise<LiquidityRecord[]> {
+  return checkSaleHistory(rpc, records);
 }
 
 export async function balances(rpc: Connection, project: TestProject) {
@@ -157,7 +162,7 @@ export async function createToken(rpc: Connection, project: TestProject, input: 
   return send(rpc, tx, [project.treasury, project.mint], rent + tokenAccountRent, 'token', track);
 }
 
-async function sdk(rpc: Connection, owner: Keypair) {
+export async function sdk(rpc: Connection, owner: Keypair) {
   return Raydium.load({ owner, connection: rpc, cluster: 'devnet', disableLoadToken: true, disableFeatureCheck: true, blockhashCommitment: 'confirmed', urlConfigs: { ...DEV_API_URLS, BASE_HOST: 'https://api-v3-devnet.raydium.io', OWNER_BASE_HOST: 'https://owner-v1-devnet.raydium.io', SWAP_HOST: 'https://transaction-v1-devnet.raydium.io' } });
 }
 

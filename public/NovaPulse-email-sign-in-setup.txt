@@ -1,0 +1,17 @@
+NOVAPULSE — EMAIL SIGN-IN SETUP
+
+The sign-in screen is prepared. It will send real email links only after you connect your own account service.
+
+1. Create a Supabase project at https://supabase.com/dashboard . Keep its passwords and secret keys private.
+2. Enable Email authentication and email-link delivery.
+3. Set Site URL to https://novapulse-nine.vercel.app . Allow this callback address: https://novapulse-nine.vercel.app/auth/callback .
+4. In your existing NovaPulse Vercel project, add these public client settings:
+   NEXT_PUBLIC_SUPABASE_URL = your project URL
+   NEXT_PUBLIC_SUPABASE_ANON_KEY = your public publishable/anon client key
+   Never use the service-role or secret key. Do not paste secret credentials into chat.
+5. Configure email delivery in Supabase, then redeploy NovaPulse so its public settings take effect.
+6. Open Account, request a link to your own email and open the newest link in the same browser. Test sign-out too.
+
+Signing in does not unlock or recover wallets. Keep the encrypted project backup and its vault password. Those keys stay in your browser and are never uploaded as part of account login.
+
+The downloaded project contains the detailed guide at docs/email-sign-in.md.

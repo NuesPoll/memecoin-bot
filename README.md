@@ -15,6 +15,12 @@ A hosted Solana **devnet** launch studio with a responsive dashboard, encrypted 
 
 7. In **Treasury**, paste your receiving Solana address, choose whether to include the launch wallet and choose a per-wallet reserve. Preview exact spendable test SOL and fees, verify the full address, then confirm the reviewed collection. Refresh individual results and download a fresh project backup. This moves native test SOL only; unsold tokens, liquidity positions and token-account rent stay in their existing accounts. Balances include original funding and are not reported as profit.
 
+**Liquidity** previews 25%, 50% or 100% of the unlocked LP in your launch wallet, shows the exact encoded minimum token/SOL returns and requires a fresh confirmation. Returned assets go to the launch wallet; Treasury can then collect native test SOL. Other providers’ LP and locked/burned LP cannot be withdrawn.
+
+**Token research** combines pool-age filters and separate 2-, 3-, 6- or 7-hour performance windows using complete UTC hourly candles from GeckoTerminal. Data is sampled, read-only mainnet research; missing/stale history is unavailable rather than invented. Choose your own name and symbol in Original token studio to prepare a devnet launch draft. Research never signs or submits anything. See [research details](docs/token-research.md).
+
+**Account** contains prepared email-link sign-in and session/sign-out handling. It is not activated until your own account service and email delivery are connected; see [email sign-in setup](docs/email-sign-in.md). Signing in does not unlock, upload or sync wallet keys.
+
 Use the sidebar or **Ctrl/Command + K** to navigate. **Activity** searches and filters recorded buy/sale signatures. **Practice lab** is a separate synthetic demonstration and never submits a trade.
 
 ## Back up and recover

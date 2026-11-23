@@ -1,4 +1,4 @@
-export type ActivityRow = { address: string; signature?: string; destination?: string; status: string; kind: 'Buy' | 'Sell' | 'Collect' };
+export type ActivityRow = { address: string; signature?: string; destination?: string; status: string; kind: 'Buy' | 'Sell' | 'Collect' | 'Remove LP' };
 export type ActivityFilter = 'all' | 'confirmed' | 'unresolved' | 'failed';
 export function filterActivity(rows: ActivityRow[], filter: ActivityFilter, query: string) {
   const term = query.trim().toLowerCase();
