@@ -8,8 +8,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   try {
     if (!cache || Date.now() - cache.checkedAt > 90_000) {
       pending ||= (async () => {
-        const results = await Promise.allSettled(['trending_pools', 'new_pools'].map(async route => {
-          const response = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/${route}?include=base_token&page=1`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
+        const routes = ['trending_pools?include=base_token&page=1', 'trending_pools?include=base_token&duration=1h&page=1', 'trending_pools?include=base_token&duration=1h&page=2', 'new_pools?include=base_token&page=1'];
+        const results = await Promise.allSettled(routes.map(async route => {
+          const response = await fetch(`https://api.geckoterminal.com/api/v2/networks/solana/${route}`, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(12_000) });
           if (!response.ok) throw new Error(); return parseMarkets(await response.json());
         }));
         const good = results.flatMap(result => result.status === 'fulfilled' ? result.value : []);

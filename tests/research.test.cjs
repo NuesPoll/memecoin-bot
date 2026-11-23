@@ -38,8 +38,8 @@ test('research APIs reject writes and unsafe addresses before making any provide
 });
 test('market API handles a partial source, deduplicates and returns fixed errors on upstream failures',async()=>{
  let calls=0;const handler=load('src/pages/api/research/markets.ts',{}, {TextEncoder,fetch:async url=>{calls++;return {ok:url.includes('trending'),json:async()=>market()};}}).default;
- const res=response();await handler({method:'GET'},res);assert.equal(res.code,200);assert.equal(res.body.rows.length,1);assert.equal(res.body.partial,true);assert.equal(calls,2);
- const again=response();await handler({method:'GET'},again);assert.equal(calls,2);
+ const res=response();await handler({method:'GET'},res);assert.equal(res.code,200);assert.equal(res.body.rows.length,1);assert.equal(res.body.partial,true);assert.equal(calls,4);
+ const again=response();await handler({method:'GET'},again);assert.equal(calls,4);
  const failing=load('src/pages/api/research/markets.ts',{}, {fetch:async()=>{throw new Error('private provider message');}}).default;
  const failure=response();await failing({method:'GET'},failure);assert.equal(failure.code,503);assert.doesNotMatch(JSON.stringify(failure.body),/private provider/);
 });
