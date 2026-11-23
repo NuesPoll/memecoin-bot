@@ -1,28 +1,6 @@
-import { Box, VStack } from '@chakra-ui/react';
-import React from 'react'
-import TransactionsCard from './TransactionsCard';
-import { useGetTransactions } from '@/hooks/useGetTransactions';
-import { useUser } from '@supabase/auth-helpers-react';
-
-interface TransactionsProps {
-
+import { Heading, Text, VStack } from '@chakra-ui/react';
+import AccountGate from '@/components/AccountGate';
+import AccountList from '@/components/AccountList';
+export default function Transactions() {
+  return <VStack align="stretch" spacing={4}><Heading size="lg">Transactions</Heading><Text>View your saved transaction hashes. No transactions are submitted or cancelled here.</Text><AccountGate><AccountList kind="transactions" /></AccountGate></VStack>;
 }
-
-const Transactions: React.FC<TransactionsProps> = ({ }) => {
-    const user = useUser()
-    const { data: transactions } = useGetTransactions(user?.user_metadata?.name)
-
-    return (
-        <VStack pt="4rem">
-            {transactions?.map((tx: any, index: number) => {
-                return (
-                    <Box key={index}>
-                        <TransactionsCard hash={tx?.hash} />
-                    </Box>
-                )
-            })}
-        </VStack>
-    );
-}
-
-export default Transactions;

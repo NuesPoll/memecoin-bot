@@ -1,76 +1,27 @@
-import { useGasPrice } from '@/hooks/useGasPrice';
-import { Avatar, Box, Button, HStack, Popover, PopoverArrow, PopoverBody, PopoverCloseButton, PopoverContent, PopoverTrigger, Text } from '@chakra-ui/react';
-import { useSupabaseClient, useUser } from "@supabase/auth-helpers-react";
-interface NavBarProps { }
-
-const NavBar: React.FC<NavBarProps> = ({ }) => {
-    const supabase = useSupabaseClient()
-    const user = useUser()
-
-
-    const signInWithDiscord = async () => {
-        const { data, error } = await supabase.auth.signInWithOAuth({
-            provider: 'discord',
-            options: {
-                redirectTo: process.env.NEXT_PUBLIC_URL
-            }
-        },)
-
-
-        if (data) {
-            return data
-        }
-
-        if (error) {
-            console.log(error)
-        }
-    }
-
-    const signout = async () => {
-        const { error } = await supabase.auth.signOut()
-
-        if (error) {
-            console.log("Logout", error)
-        }
-    }
-
-    const { data: gas } = useGasPrice()
-
-    console.log("Gas", gas?.data?.[4])
-    return (
-        <HStack w="95%" p="1rem" justify="flex-end" gap="1rem">
-            <HStack>
-                {gas?.data?.[4]?.attributes?.info?.slow && <Text as="b">🐢 {gas?.data?.[4]?.attributes?.info?.slow / 1000000000}</Text>}
-                {gas?.data?.[4]?.attributes?.info?.standard && <Text as="b">🚗 {gas?.data?.[4]?.attributes?.info?.standard / 1000000000}</Text>}
-                {gas?.data?.[4]?.attributes?.info?.fast && <Text as="b">🚀 {gas?.data?.[4]?.attributes?.info?.fast / 1000000000}</Text>}
-            </HStack>
-            {user ?
-                <Box>
-                    <Popover>
-                        <PopoverTrigger>
-                            <Button variant="outline">
-                                <HStack>
-                                    <Avatar size="xs" src={user?.user_metadata?.avatar_url} />
-                                    <Text>{user?.user_metadata?.name}</Text>
-                                </HStack>
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent>
-                            <PopoverArrow />
-                            <PopoverCloseButton />
-                            <PopoverBody>
-                                <Button onClick={signout} variant="solid">Logout</Button>
-                            </PopoverBody>
-                        </PopoverContent>
-                    </Popover>
-                </Box>
-                : <Button onClick={signInWithDiscord} variant="outline">
-                    Login Discord
-                </Button>
-
-            }
-        </HStack >
-    );
+import { Button, HStack, Text, useToast } from '@chakra-ui/react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useAuth } from '@/components/Auth';
+export default function NavBar() {
+  const { client, user, configured, loading } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const queries = useQueryClient();
+  const toast = useToast();
+  async function authenticate() {
+    if (!client) return;
+    setBusy(true);
+    try {
+      if (user) {
+        const { error } = await client.auth.signOut();
+        if (error) throw error;
+        queries.clear();
+      } else {
+        const { error } = await client.auth.signInWithOAuth({ provider: 'discord', options: { redirectTo: window.location.origin } });
+        if (error) throw error;
+      }
+    } catch {
+      toast({ title: 'Sign-in service unavailable', description: 'Please try again later or check the Discord sign-in setup.', status: 'error', isClosable: true });
+    } finally { setBusy(false); }
+  }
+  return <HStack w="100%" p={4} justify="space-between" flexWrap="wrap"><Text fontSize="xl" fontWeight="bold">NovaPulse</Text><Button onClick={authenticate} isDisabled={!configured || loading} isLoading={busy}>{!configured ? 'Login unavailable' : user ? 'Logout' : 'Login Discord'}</Button></HStack>;
 }
-
-export default NavBar;

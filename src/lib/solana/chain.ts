@@ -1,0 +1,334 @@
+import { Connection, Keypair, PublicKey, Signer, SystemProgram, Transaction } from '@solana/web3.js';
+import { AuthorityType, ExtensionType, LENGTH_SIZE, NATIVE_MINT, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID, TYPE_SIZE, createAssociatedTokenAccountIdempotentInstruction, createInitializeMetadataPointerInstruction, createInitializeMintInstruction, createMintToInstruction, createSetAuthorityInstruction, getAssociatedTokenAddressSync, getMint, getMintLen, getAccountLen, getTokenMetadata, unpackAccount } from '@solana/spl-token';
+import { createInitializeInstruction, pack } from '@solana/spl-token-metadata';
+import { CurveCalculator, DEVNET_PROGRAM_ID, DEV_API_URLS, FeeOn, Raydium, TxVersion, getCpmmPdaAmmConfigId } from '@raydium-io/raydium-sdk-v2';
+import BN from 'bn.js';
+import bs58 from 'bs58';
+import { DEVNET_GENESIS, WALLET_COUNT, WalletResult, batchBudget, percentageAmount, submitWave, validateLaunch } from './plan';
+
+export type TestProject = { treasury: Keypair; mint: Keypair; wallets: Keypair[] };
+export type LaunchInput = { name: string; symbol: string; supply: string; poolTokens: string; poolSol: string };
+export type BatchRecord = { rows: WalletResult[]; lastValidBlockHeight: number };
+export type SaleIntent = { walletAddress: string; tokenAmountRaw: string; minimumSolRaw: string };
+export type LiquidityIntent = { pool: string; lpAmountRaw: string; minimumTokenRaw: string; minimumSolRaw: string };
+export type TransactionAttempt = { signature: string; lastValidBlockHeight: number; action: 'token' | 'pool' | 'funding' | 'sell' | 'liquidity'; sale?: SaleIntent; liquidity?: LiquidityIntent };
+export type SaleRecord = TransactionAttempt & { status: 'unknown' | 'confirmed' | 'failed' | 'expired' };
+export type LiquidityRecord = TransactionAttempt & { status: 'unknown' | 'confirmed' | 'failed' | 'expired' };
+export type TokenHolding = { address: string; rawAmount: string; frozen: boolean };
+type TrackTransaction = (attempt: TransactionAttempt | undefined) => void;
+type BuiltTransaction = { transaction: Transaction; signers: Signer[] };
+
+export function generateProject(): TestProject {
+  return { treasury: Keypair.generate(), mint: Keypair.generate(), wallets: Array.from({ length: WALLET_COUNT }, () => Keypair.generate()) };
+}
+export function serializeProject(project: TestProject) {
+  return JSON.stringify({ network: 'devnet', treasury: Array.from(project.treasury.secretKey), mint: Array.from(project.mint.secretKey), wallets: project.wallets.map(wallet => Array.from(wallet.secretKey)) });
+}
+export function restoreProject(plaintext: string): TestProject {
+  const value = JSON.parse(plaintext);
+  if (value.network !== 'devnet' || !Array.isArray(value.wallets) || value.wallets.length !== WALLET_COUNT) throw new Error('A devnet project with exactly 40 buying wallets is required.');
+  const restore = (bytes: unknown) => {
+    if (!Array.isArray(bytes) || bytes.length !== 64 || !bytes.every(byte => Number.isInteger(byte) && byte >= 0 && byte <= 255)) throw new Error('Invalid encrypted wallet record.');
+    return Keypair.fromSecretKey(Uint8Array.from(bytes));
+  };
+  const project = { treasury: restore(value.treasury), mint: restore(value.mint), wallets: value.wallets.map(restore) };
+  if (new Set([project.treasury, project.mint, ...project.wallets].map(wallet => wallet.publicKey.toBase58())).size !== 42) throw new Error('Wallet records must be distinct.');
+  return project;
+}
+
+export function connection() {
+  return new Connection(`${window.location.origin}/api/solana/rpc`, { commitment: 'confirmed', disableRetryOnRateLimit: true });
+}
+export async function assertDevnet(rpc: Connection) {
+  if (await rpc.getGenesisHash() !== DEVNET_GENESIS) throw new Error('Devnet verification failed. Real-money networks are disabled.');
+}
+
+const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+async function waitForSignature(rpc: Connection, signature: string) {
+  for (let attempt = 0; attempt < 35; attempt++) {
+    const result = (await rpc.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0];
+    if (result?.err) throw new Error(`Transaction failed. Inspect ${signature} on the devnet explorer.`);
+    if (result?.confirmationStatus === 'confirmed' || result?.confirmationStatus === 'finalized') return signature;
+    await pause(2000);
+  }
+  throw new Error(`Confirmation is still unknown. Check ${signature} before trying again.`);
+}
+
+export async function send(rpc: Connection, tx: Transaction, signers: Signer[], accountCosts = 0, action: TransactionAttempt['action'] = 'token', track?: TrackTransaction) {
+  await assertDevnet(rpc);
+  tx.feePayer ??= signers[0].publicKey;
+  const block = await rpc.getLatestBlockhash('confirmed');
+  tx.recentBlockhash = block.blockhash;
+  const fee = (await rpc.getFeeForMessage(tx.compileMessage(), 'confirmed')).value;
+  if (fee === null) throw new Error('The network could not estimate the transaction fee. Nothing was submitted. Try again later.');
+  const balance = await rpc.getBalance(tx.feePayer, 'confirmed');
+  const required = accountCosts + fee;
+  if (balance < required) throw new Error(`The ${action === 'sell' ? 'selected buying' : 'launch'} wallet has ${(balance / 1e9).toFixed(9)} test SOL; this step needs at least ${(required / 1e9).toFixed(9)} test SOL for account rent and fees. Nothing was submitted. Request free devnet SOL using that wallet address, then refresh balances.`);
+  tx.sign(...signers);
+  const signature = bs58.encode(Uint8Array.from(tx.signature!));
+  track?.({ signature, lastValidBlockHeight: block.lastValidBlockHeight, action });
+  try { await rpc.sendRawTransaction(tx.serialize(), { skipPreflight: false, maxRetries: 2 }); }
+  catch (failure) {
+    // Only our relay's fixed preflight marker proves this submission was rejected.
+    const detail = failure && typeof failure === 'object' ? (failure as { transactionMessage?: unknown }).transactionMessage : undefined;
+    if (typeof detail === 'string' && detail.startsWith('Preflight rejected: ')) {
+      track?.(undefined);
+      throw new Error(detail);
+    }
+    try {
+      const status = (await rpc.getSignatureStatuses([signature], { searchTransactionHistory: true })).value[0];
+      if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') {
+        if (!status.err) { track?.(undefined); return signature; }
+      }
+    } catch { /* Keep the persisted attempt when the status service is unavailable. */ }
+    throw new Error(`The submission response was interrupted. Use Check transaction status below before trying again. Signature: ${signature}`);
+  }
+  const confirmed = await waitForSignature(rpc, signature);
+  track?.(undefined);
+  return confirmed;
+}
+
+export async function checkTransaction(rpc: Connection, attempt: TransactionAttempt) {
+  await assertDevnet(rpc);
+  const status = (await rpc.getSignatureStatuses([attempt.signature], { searchTransactionHistory: true })).value[0];
+  if (status?.err) return 'failed' as const;
+  if (status?.confirmationStatus === 'confirmed' || status?.confirmationStatus === 'finalized') return 'confirmed' as const;
+  if (!status && await rpc.getBlockHeight('confirmed') > attempt.lastValidBlockHeight) return 'expired' as const;
+  return 'unknown' as const;
+}
+
+export async function checkSaleHistory(rpc: Connection, sales: SaleRecord[]): Promise<SaleRecord[]> {
+  await assertDevnet(rpc);
+  if (!sales.length) return [];
+  if (sales.length > 100) throw new Error('Check at most 100 sale records at a time.');
+  const statuses = (await rpc.getSignatureStatuses(sales.map(sale => sale.signature), { searchTransactionHistory: true })).value;
+  if (statuses.length !== sales.length) throw new Error('The transaction history response was incomplete. Check again; no transaction was submitted.');
+  return sales.map((sale, i) => ({ ...sale, status: statuses[i]?.err ? 'failed' : statuses[i]?.confirmationStatus === 'confirmed' || statuses[i]?.confirmationStatus === 'finalized' ? 'confirmed' : 'unknown' }));
+}
+export async function checkLiquidityHistory(rpc: Connection, records: LiquidityRecord[]): Promise<LiquidityRecord[]> {
+  return checkSaleHistory(rpc, records);
+}
+
+export async function balances(rpc: Connection, project: TestProject) {
+  await assertDevnet(rpc);
+  const rows = await rpc.getMultipleAccountsInfo([project.treasury.publicKey, ...project.wallets.map(wallet => wallet.publicKey)]);
+  return rows.map(account => account?.lamports || 0);
+}
+
+// These wallets use one associated project-token account each. Missing accounts are zero;
+// malformed, wrong-mint or wrong-owner accounts are errors, never disguised as empty holdings.
+export async function tokenHoldings(rpc: Connection, project: TestProject): Promise<TokenHolding[]> {
+  await assertDevnet(rpc);
+  const owners = [project.treasury.publicKey, ...project.wallets.map(wallet => wallet.publicKey)];
+  const addresses = owners.map(owner => getAssociatedTokenAddressSync(project.mint.publicKey, owner, false, TOKEN_2022_PROGRAM_ID));
+  const accounts = await rpc.getMultipleAccountsInfo(addresses, 'confirmed');
+  if (accounts.length !== owners.length) throw new Error('The holdings response was incomplete. Try refreshing again.');
+  return accounts.map((info, i) => {
+    if (!info) return { address: owners[i].toBase58(), rawAmount: '0', frozen: false };
+    const account = unpackAccount(addresses[i], info, TOKEN_2022_PROGRAM_ID);
+    if (!account.mint.equals(project.mint.publicKey) || !account.owner.equals(owners[i]) || !account.isInitialized) throw new Error('A project token account could not be verified. Holdings were not refreshed.');
+    return { address: owners[i].toBase58(), rawAmount: account.amount.toString(), frozen: account.isFrozen };
+  });
+}
+
+export async function requestTestSol(rpc: Connection, project: TestProject) {
+  await assertDevnet(rpc);
+  const signature = await rpc.requestAirdrop(project.treasury.publicKey, 2_000_000_000);
+  return waitForSignature(rpc, signature);
+}
+
+export async function createToken(rpc: Connection, project: TestProject, input: LaunchInput, track?: TrackTransaction) {
+  await assertDevnet(rpc);
+  const amounts = validateLaunch(input.name, input.symbol, input.supply, input.poolTokens, input.poolSol);
+  if (await rpc.getAccountInfo(project.mint.publicKey)) throw new Error('This project mint already exists. Restore its public progress instead of creating it again.');
+  const uri = `${window.location.origin}/api/solana/metadata?name=${encodeURIComponent(input.name.trim())}&symbol=${encodeURIComponent(input.symbol)}`;
+  if (uri.length > 200) throw new Error('The metadata URL is too long; use a shorter token name.');
+  const metadata = { updateAuthority: project.treasury.publicKey, mint: project.mint.publicKey, name: input.name.trim(), symbol: input.symbol, uri, additionalMetadata: [] };
+  const mintSpace = getMintLen([ExtensionType.MetadataPointer]);
+  const rent = await rpc.getMinimumBalanceForRentExemption(mintSpace + TYPE_SIZE + LENGTH_SIZE + pack(metadata).length);
+  const owner = project.treasury.publicKey;
+  const mint = project.mint.publicKey;
+  const ata = getAssociatedTokenAddressSync(mint, owner, false, TOKEN_2022_PROGRAM_ID);
+  const tx = new Transaction().add(
+    SystemProgram.createAccount({ fromPubkey: owner, newAccountPubkey: mint, space: mintSpace, lamports: rent, programId: TOKEN_2022_PROGRAM_ID }),
+    createInitializeMetadataPointerInstruction(mint, owner, mint, TOKEN_2022_PROGRAM_ID),
+    createInitializeMintInstruction(mint, 6, owner, null, TOKEN_2022_PROGRAM_ID),
+    createInitializeInstruction({ programId: TOKEN_2022_PROGRAM_ID, metadata: mint, updateAuthority: owner, mint, mintAuthority: owner, name: metadata.name, symbol: metadata.symbol, uri }),
+    createAssociatedTokenAccountIdempotentInstruction(owner, ata, owner, mint, TOKEN_2022_PROGRAM_ID),
+    createMintToInstruction(mint, ata, owner, amounts.total, [], TOKEN_2022_PROGRAM_ID),
+    createSetAuthorityInstruction(mint, owner, AuthorityType.MintTokens, null, [], TOKEN_2022_PROGRAM_ID),
+  );
+  const tokenAccountRent = await rpc.getMinimumBalanceForRentExemption(getAccountLen([ExtensionType.ImmutableOwner]));
+  return send(rpc, tx, [project.treasury, project.mint], rent + tokenAccountRent, 'token', track);
+}
+
+export async function sdk(rpc: Connection, owner: Keypair) {
+  return Raydium.load({ owner, connection: rpc, cluster: 'devnet', disableLoadToken: true, disableFeatureCheck: true, blockhashCommitment: 'confirmed', urlConfigs: { ...DEV_API_URLS, BASE_HOST: 'https://api-v3-devnet.raydium.io', OWNER_BASE_HOST: 'https://owner-v1-devnet.raydium.io', SWAP_HOST: 'https://transaction-v1-devnet.raydium.io' } });
+}
+
+export async function createPool(rpc: Connection, project: TestProject, input: LaunchInput, rememberPool: (address: string) => void, track?: TrackTransaction) {
+  await assertDevnet(rpc);
+  const amounts = validateLaunch(input.name, input.symbol, input.supply, input.poolTokens, input.poolSol);
+  const raydium = await sdk(rpc, project.treasury);
+  const configs = await raydium.api.getCpmmConfigs();
+  if (!configs.length) throw new Error('Raydium devnet fee configuration is unavailable.');
+  const feeConfig = { ...configs[0], id: getCpmmPdaAmmConfigId(DEVNET_PROGRAM_ID.CREATE_CPMM_POOL_PROGRAM, configs[0].index).publicKey.toBase58() };
+  const built = await raydium.cpmm.createPool({
+    programId: DEVNET_PROGRAM_ID.CREATE_CPMM_POOL_PROGRAM,
+    poolFeeAccount: DEVNET_PROGRAM_ID.CREATE_CPMM_POOL_FEE_ACC,
+    mintA: { address: project.mint.publicKey.toBase58(), programId: TOKEN_2022_PROGRAM_ID.toBase58(), decimals: 6 },
+    mintB: { address: NATIVE_MINT.toBase58(), programId: TOKEN_PROGRAM_ID.toBase58(), decimals: 9 },
+    mintAAmount: new BN(amounts.liquidity.toString()), mintBAmount: new BN(amounts.sol.toString()),
+    startTime: new BN(0), feeConfig, associatedOnly: false, ownerInfo: { useSOLBalance: true }, txVersion: TxVersion.LEGACY,
+  });
+  const pool = built.extInfo.address.poolId.toBase58();
+  rememberPool(pool);
+  if (await rpc.getAccountInfo(new PublicKey(pool))) throw new Error('This pool already exists. Verify its state and continue to funding.');
+  const signature = await send(rpc, built.transaction, built.signers, 0, 'pool', track);
+  return { pool, signature };
+}
+
+export async function inspectProject(rpc: Connection, project: TestProject, poolAddress?: string) {
+  await assertDevnet(rpc);
+  const account = await rpc.getAccountInfo(project.mint.publicKey);
+  if (!account) return { tokenCreated: false, poolCreated: false, name: undefined, symbol: undefined };
+  if (!account.owner.equals(TOKEN_2022_PROGRAM_ID)) throw new Error('This project mint is not a Token-2022 mint.');
+  const mint = await getMint(rpc, project.mint.publicKey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+  if (mint.decimals !== 6 || mint.mintAuthority !== null || mint.freezeAuthority !== null) throw new Error('The mint does not match this fixed-supply test project.');
+  const metadata = await getTokenMetadata(rpc, project.mint.publicKey, 'confirmed', TOKEN_2022_PROGRAM_ID);
+  let poolCreated = false;
+  if (poolAddress && await rpc.getAccountInfo(new PublicKey(poolAddress))) {
+    const raydium = await sdk(rpc, project.treasury);
+    const { poolInfo } = await raydium.cpmm.getPoolInfoFromRpc(poolAddress);
+    const pair = [poolInfo.mintA.address, poolInfo.mintB.address];
+    if (poolInfo.programId !== DEVNET_PROGRAM_ID.CREATE_CPMM_POOL_PROGRAM.toBase58() || !pair.includes(project.mint.publicKey.toBase58()) || !pair.includes(NATIVE_MINT.toBase58())) throw new Error('This pool does not match your devnet token/SOL pair.');
+    poolCreated = true;
+  }
+  return { tokenCreated: true, poolCreated, name: metadata?.name, symbol: metadata?.symbol };
+}
+
+export async function fundWallets(rpc: Connection, project: TestProject, amount: string, track?: TrackTransaction) {
+  await assertDevnet(rpc);
+  const { perWallet } = batchBudget(amount, project.wallets.length, 100);
+  // Reserve covers WSOL/token account rent and fees; unused test SOL stays in each wallet.
+  const target = perWallet + BigInt(10_000_000);
+  const current = (await balances(rpc, project)).slice(1);
+  const transfers = project.wallets.map((wallet, i) => ({ wallet, needed: target - BigInt(current[i]) })).filter(row => row.needed > BigInt(0));
+  const required = transfers.reduce((sum, row) => sum + row.needed, BigInt(0));
+  const treasuryBalance = await rpc.getBalance(project.treasury.publicKey);
+  if (required + BigInt(100_000) > BigInt(treasuryBalance)) throw new Error('The launch wallet needs more test SOL to fund all 40 buying wallets.');
+  for (let i = 0; i < transfers.length; i += 8) {
+    const tx = new Transaction();
+    for (const { wallet, needed } of transfers.slice(i, i + 8)) tx.add(SystemProgram.transfer({ fromPubkey: project.treasury.publicKey, toPubkey: wallet.publicKey, lamports: needed }));
+    await send(rpc, tx, [project.treasury], 0, 'funding', track);
+  }
+}
+
+export async function prepareBatch(rpc: Connection, project: TestProject, poolId: string, amount: string, slippageBps: number, onProgress: (done: number) => void) {
+  await assertDevnet(rpc);
+  const budget = batchBudget(amount, project.wallets.length, slippageBps);
+  const raydium = await sdk(rpc, project.treasury);
+  const { poolInfo, poolKeys, rpcData } = await raydium.cpmm.getPoolInfoFromRpc(poolId);
+  if (poolInfo.programId !== DEVNET_PROGRAM_ID.CREATE_CPMM_POOL_PROGRAM.toBase58()) throw new Error('Choose a Raydium devnet CPMM pool.');
+  const baseIn = poolInfo.mintA.address === NATIVE_MINT.toBase58();
+  if ((baseIn ? poolInfo.mintB.address : poolInfo.mintA.address) !== project.mint.publicKey.toBase58() || (baseIn ? poolInfo.mintA.address : poolInfo.mintB.address) !== NATIVE_MINT.toBase58()) throw new Error('The pool must pair this project token with wrapped SOL.');
+  const current = (await balances(rpc, project)).slice(1);
+  if (current.some(value => BigInt(value) < budget.perWallet + BigInt(10_000_000))) throw new Error('Fund all 40 wallets before preparing a batch.');
+  if (!rpcData.configInfo) throw new Error('Pool fee information is unavailable.');
+  const config = rpcData.configInfo;
+  const quote = (input: BN, inputReserve: BN, outputReserve: BN) => CurveCalculator.swapBaseInput(input, inputReserve, outputReserve, config.tradeFeeRate, config.creatorFeeRate, config.protocolFeeRate, config.fundFeeRate, rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB);
+  const reserveIn = baseIn ? rpcData.baseReserve : rpcData.quoteReserve;
+  const reserveOut = baseIn ? rpcData.quoteReserve : rpcData.baseReserve;
+  // Each wallet is quoted conservatively as if the other 39 buys happened first.
+  const otherBuys = quote(new BN((budget.total - budget.perWallet).toString()), reserveIn, reserveOut);
+  const conservative = quote(new BN(budget.perWallet.toString()), otherBuys.newInputVaultAmount, otherBuys.newOutputVaultAmount);
+  if (conservative.outputAmount.isZero()) throw new Error('The batch is too small for this pool.');
+  const prepared: { address: string; built: BuiltTransaction }[] = [];
+  for (const wallet of project.wallets) {
+    raydium.setOwner(wallet);
+    // Refresh account ownership after switching between independent signers.
+    await raydium.account.fetchWalletTokenAccounts({ forceUpdate: true });
+    const built = await raydium.cpmm.swap({ poolInfo, poolKeys, inputAmount: new BN(budget.perWallet.toString()), swapResult: conservative, baseIn, slippage: slippageBps / 10_000, txVersion: TxVersion.LEGACY, config: { associatedOnly: true } });
+    prepared.push({ address: wallet.publicKey.toBase58(), built });
+    onProgress(prepared.length);
+    // Leave room under public devnet RPC per-method request limits while preparing.
+    if (prepared.length < WALLET_COUNT) await pause(650);
+  }
+  return { prepared, minimumTokens: conservative.outputAmount.muln(10_000 - slippageBps).divn(10_000).toString(), amount, poolId, slippageBps, createdAt: Date.now() };
+}
+export type PreparedBatch = Awaited<ReturnType<typeof prepareBatch>>;
+
+export type SellReview = SaleIntent & { walletIndex: number; mint: string; poolId: string; percent: number; slippageBps: number; expectedSolRaw: string; createdAt: number; used: boolean; built: BuiltTransaction };
+
+export async function prepareSell(rpc: Connection, project: TestProject, poolId: string, walletIndex: number, percent: number, slippageBps: number): Promise<SellReview> {
+  await assertDevnet(rpc);
+  if (!Number.isInteger(walletIndex) || walletIndex < 0 || walletIndex >= project.wallets.length) throw new Error('Choose one of your buying wallets.');
+  if (!Number.isInteger(slippageBps) || slippageBps < 1 || slippageBps > 500) throw new Error('Slippage must be between 0.01% and 5%.');
+  const createdAt = Date.now();
+  const wallet = project.wallets[walletIndex];
+  const holding = (await tokenHoldings(rpc, project))[walletIndex + 1];
+  if (holding.frozen) throw new Error('This wallet token account is frozen and cannot sell.');
+  const amount = percentageAmount(holding.rawAmount, percent);
+  const raydium = await sdk(rpc, wallet);
+  const { poolInfo, poolKeys, rpcData } = await raydium.cpmm.getPoolInfoFromRpc(poolId);
+  if (poolInfo.programId !== DEVNET_PROGRAM_ID.CREATE_CPMM_POOL_PROGRAM.toBase58() || poolInfo.id !== poolId) throw new Error('Choose the matching Raydium devnet pool.');
+  const baseIn = poolInfo.mintA.address === project.mint.publicKey.toBase58();
+  if ((baseIn ? poolInfo.mintA.address : poolInfo.mintB.address) !== project.mint.publicKey.toBase58() || (baseIn ? poolInfo.mintB.address : poolInfo.mintA.address) !== NATIVE_MINT.toBase58()) throw new Error('The pool must pair this project token with wrapped SOL.');
+  if (!rpcData.configInfo) throw new Error('Pool fee information is unavailable.');
+  const fee = rpcData.configInfo;
+  const quote = CurveCalculator.swapBaseInput(new BN(amount.toString()), baseIn ? rpcData.baseReserve : rpcData.quoteReserve, baseIn ? rpcData.quoteReserve : rpcData.baseReserve, fee.tradeFeeRate, fee.creatorFeeRate, fee.protocolFeeRate, fee.fundFeeRate, rpcData.feeOn === FeeOn.BothToken || rpcData.feeOn === FeeOn.OnlyTokenB);
+  const minimum = quote.outputAmount.muln(10_000 - slippageBps).divn(10_000);
+  if (minimum.isZero()) throw new Error('This sale is too small for a nonzero minimum output.');
+  await raydium.account.fetchWalletTokenAccounts({ forceUpdate: true });
+  const built = await raydium.cpmm.swap({ poolInfo, poolKeys, inputAmount: new BN(amount.toString()), swapResult: quote, baseIn, slippage: slippageBps / 10_000, txVersion: TxVersion.LEGACY, config: { associatedOnly: true } });
+  // Include the selected payer explicitly, even if an SDK builder omits it.
+  const signers = [...new Map([wallet, ...built.signers].map(signer => [signer.publicKey.toBase58(), signer])).values()];
+  return { walletIndex, walletAddress: wallet.publicKey.toBase58(), mint: project.mint.publicKey.toBase58(), poolId, percent, tokenAmountRaw: amount.toString(), slippageBps, expectedSolRaw: quote.outputAmount.toString(), minimumSolRaw: minimum.toString(), createdAt, used: false, built: { transaction: built.transaction, signers } };
+}
+
+export async function submitSell(rpc: Connection, project: TestProject, review: SellReview, track?: TrackTransaction) {
+  await assertDevnet(rpc);
+  if (review.used) throw new Error('This sale review has already been used. Check its status before preparing another.');
+  if (Date.now() - review.createdAt > 30_000) throw new Error('The sale quote expired. Preview the sale again.');
+  const wallet = project.wallets[review.walletIndex];
+  if (!wallet || wallet.publicKey.toBase58() !== review.walletAddress || project.mint.publicKey.toBase58() !== review.mint) throw new Error('This review belongs to a different wallet or project.');
+  // Consume before the next await, so concurrent clicks cannot reuse a review.
+  review.used = true;
+  const holding = (await tokenHoldings(rpc, project))[review.walletIndex + 1];
+  if (holding.frozen || BigInt(holding.rawAmount) < BigInt(review.tokenAmountRaw)) throw new Error('The token balance changed or is frozen. Preview the sale again.');
+  const wsolRent = await rpc.getMinimumBalanceForRentExemption(165);
+  return send(rpc, review.built.transaction, review.built.signers, wsolRent, 'sell', pending => track?.(pending ? { ...pending, sale: { walletAddress: review.walletAddress, tokenAmountRaw: review.tokenAmountRaw, minimumSolRaw: review.minimumSolRaw } } : undefined));
+}
+
+export async function submitBatch(rpc: Connection, batch: PreparedBatch, remember: (record: BatchRecord) => void, update: (result: WalletResult) => void) {
+  await assertDevnet(rpc);
+  if (Date.now() - batch.createdAt > 30_000) throw new Error('The reviewed quote expired. Prepare a fresh batch.');
+  const block = await rpc.getLatestBlockhash('confirmed');
+  const signed = batch.prepared.map(({ address, built }) => {
+    built.transaction.recentBlockhash = block.blockhash;
+    built.transaction.sign(...built.signers);
+    return { address, bytes: built.transaction.serialize(), signature: bs58.encode(Uint8Array.from(built.transaction.signature!)) };
+  });
+  // Persist known signatures before broadcasting: uncertain responses must not cause duplicate buys.
+  const rows: WalletResult[] = signed.map(item => ({ address: item.address, signature: item.signature, status: 'ready' }));
+  remember({ rows, lastValidBlockHeight: block.lastValidBlockHeight });
+  await submitWave(signed, async item => {
+    const signature = await rpc.sendRawTransaction(item.bytes, { skipPreflight: false, maxRetries: 2 });
+    if (signature !== item.signature) throw new Error('Signature mismatch');
+    return signature;
+  }, result => update({ ...result, signature: signed.find(item => item.address === result.address)!.signature }));
+  return rows;
+}
+
+export async function checkBatch(rpc: Connection, record: BatchRecord) {
+  await assertDevnet(rpc);
+  const statuses = (await rpc.getSignatureStatuses(record.rows.map(row => row.signature!), { searchTransactionHistory: true })).value;
+  if (statuses.length !== record.rows.length) throw new Error('The buying-batch response was incomplete. Check again; no purchase was repeated.');
+  const height = await rpc.getBlockHeight('confirmed');
+  return record.rows.map((row, i): WalletResult => {
+    const state = statuses[i];
+    if (state?.err) return { ...row, status: 'failed', message: 'On-chain execution failed. No automatic resubmission.' };
+    if (state?.confirmationStatus === 'confirmed' || state?.confirmationStatus === 'finalized') return { ...row, status: 'confirmed', message: undefined };
+    return { ...row, status: 'unknown', message: height > record.lastValidBlockHeight ? 'Validity window ended. Inspect the explorer before any new purchase.' : 'Waiting for a confirmed on-chain result.' };
+  });
+}

@@ -1,14 +1,12 @@
-name: NovaPulse build validation
-
+name: NovaPulse validation
 on:
   push:
-    branches:
-      - fix/novapulse-sentry-build
+    branches: [main, fix/novapulse-dashboard, feat/solana-launch-batch]
   pull_request:
-    branches:
-      - main
+    branches: [main]
   workflow_dispatch:
-
+permissions:
+  contents: read
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -18,7 +16,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Install dependencies
-        run: yarn install --non-interactive
-      - name: Build Next.js
-        run: yarn build
+          cache: npm
+      - run: npm ci --legacy-peer-deps --ignore-scripts
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm run build
+      - name: Save reproducible dependency lockfile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: solana-lockfile
+          path: package-lock.json
+      - name: One-time live devnet smoke test
+        if: github.event_name == 'push' && contains(github.event.head_commit.message, '[devnet-smoke]')
+        continue-on-error: true
+        timeout-minutes: 8
+        run: node scripts/devnet-smoke.cjs
